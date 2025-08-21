@@ -1,0 +1,14 @@
+{
+  "name": "whot",
+  "type": "module",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "workspaces": [
+    "contracts", "tee"
+  ],
+  "dependencies": {
+    "isolated": "^3.0.25"
+  }
+}

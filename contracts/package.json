@@ -1,0 +1,17 @@
+{
+  "name": "@whot/contracts",
+  "version": "1.0.0",
+  "description": "Whot Smart Contracts",
+  "private": true,
+  "scripts": {
+    "compile": "forge build",
+    "test": "forge test"
+  },
+  "dependencies": {
+    "@fhevm/solidity": "^0.7.0",
+    "@openzeppelin/contracts": "^5.4.0",
+    "@zama-fhe/oracle-solidity": "^^0.1.0",
+    "encrypted-types": "^0.0.4",
+    "solady": "^0.1.24"
+  }
+}
