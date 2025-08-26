@@ -6,7 +6,8 @@
     "@types/bun": "latest"
   },
   "workspaces": [
-    "contracts", "tee"
+    "contracts",
+    "tee"
   ],
   "dependencies": {
     "isolated": "^3.0.25"

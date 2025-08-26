@@ -8,10 +8,31 @@
     "test": "forge test"
   },
   "dependencies": {
-    "@fhevm/solidity": "^0.7.0",
+    "@fhevm/solidity": "0.7.0",
     "@openzeppelin/contracts": "^5.4.0",
     "@zama-fhe/oracle-solidity": "^^0.1.0",
     "encrypted-types": "^0.0.4",
     "solady": "^0.1.24"
+  },
+  "devDependencies": {
+    "@fhevm/core-contracts": "0.7.0-12",
+    "@fhevm/hardhat-plugin": "^0.0.1-6",
+    "@nomicfoundation/hardhat-chai-matchers": "^2",
+    "@nomicfoundation/hardhat-ethers": "^3",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@typechain/ethers-v6": "^0.5.1",
+    "@typechain/hardhat": "^9.1.0",
+    "@types/node": "^24.3.0",
+    "dotenv": "^17.2.1",
+    "ethers": "^6",
+    "hardhat": "^2.24",
+    "hardhat-exposed": "^0.3.15",
+    "hardhat-gas-reporter": "^2.1.0",
+    "hardhat-ignore-warnings": "^0.2.11",
+    "solidity-coverage": "0.8.12",
+    "solidity-docgen": "^0.6.0-beta.36",
+    "ts-node": "^10.9.2",
+    "typechain": "^8.3.2",
+    "typescript": "^5.9.2"
   }
 }
