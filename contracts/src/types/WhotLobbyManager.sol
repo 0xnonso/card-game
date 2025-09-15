@@ -36,11 +36,7 @@ library LobbyManager {
         }
     }
 
-    function getLobbyPlayers(Lobby storage lobby, uint256 numPlayers)
-        internal
-        view
-        returns (address[] memory)
-    {
+    function getLobbyPlayers(Lobby storage lobby, uint256 numPlayers) internal view returns (address[] memory) {
         address[] memory lobbyPlayers = new address[](numPlayers);
         for (uint256 i = 0; i < numPlayers; i++) {
             lobbyPlayers[i] = lobby.players[i];

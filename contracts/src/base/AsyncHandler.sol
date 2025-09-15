@@ -4,8 +4,8 @@ pragma solidity ^0.8.24;
 import {SepoliaConfig} from "fhevm/config/ZamaConfig.sol";
 import {FHE, euint256, euint8} from "fhevm/lib/FHE.sol";
 
-import {Action} from "../libraries/WhotLib.sol";
-import {WhotDeckMap} from "../types/Map.sol";
+import {Action} from "../libraries/CardEngineLib.sol";
+import {DeckMap} from "../types/Map.sol";
 
 abstract contract AsyncHandler is SepoliaConfig {
     using FHE for *;
@@ -22,7 +22,7 @@ abstract contract AsyncHandler is SepoliaConfig {
         Action action;
         uint40 timestamp;
         uint8 playerIndex;
-        WhotDeckMap updatedPlayerDeckMap;
+        DeckMap updatedPlayerDeckMap;
         euint8 card;
         uint256 gameId;
         bytes extraData;
@@ -39,7 +39,7 @@ abstract contract AsyncHandler is SepoliaConfig {
         uint256 gameId,
         euint8 cardToCommit,
         Action action,
-        WhotDeckMap updatedPlayerDeckMap,
+        DeckMap updatedPlayerDeckMap,
         uint256 playerIndex,
         bytes memory extraData
     ) internal {
@@ -71,8 +71,7 @@ abstract contract AsyncHandler is SepoliaConfig {
 
         uint256 reqId = FHE.requestDecryption(cts, this.handleCommitMarketDeck.selector);
 
-        CommittedMarketDeck memory committedMarketDeck =
-            CommittedMarketDeck({gameId: gameId, marketDeck: marketDeck});
+        CommittedMarketDeck memory committedMarketDeck = CommittedMarketDeck({gameId: gameId, marketDeck: marketDeck});
         // committedMarketDeck.gameId = gameId;
         // committedMarketDeck.playerIndexes = playerIndexes;
         _hasCommittedAction[gameId] = true;
@@ -80,9 +79,7 @@ abstract contract AsyncHandler is SepoliaConfig {
         requestToCommittedMarketDeck[reqId] = committedMarketDeck;
     }
 
-    function __validateCallbackSignature(uint256 reqId, uint256 gameId, bytes[] memory signatures)
-        internal
-    {
+    function __validateCallbackSignature(uint256 reqId, uint256 gameId, bytes[] memory signatures) internal {
         if (!_isLatestRequest[gameId][reqId]) revert();
         FHE.checkSignatures(reqId, signatures);
     }
@@ -91,11 +88,7 @@ abstract contract AsyncHandler is SepoliaConfig {
         return requestToCommittedMove[reqId];
     }
 
-    function getCommittedMarketDeck(uint256 reqId)
-        internal
-        view
-        returns (CommittedMarketDeck memory)
-    {
+    function getCommittedMarketDeck(uint256 reqId) internal view returns (CommittedMarketDeck memory) {
         return requestToCommittedMarketDeck[reqId];
     }
 
@@ -114,12 +107,8 @@ abstract contract AsyncHandler is SepoliaConfig {
         return _isLatestRequest[gameId][reqId];
     }
 
-    function handleCommitMove(uint256 requestId, uint8 card, bytes[] memory signatures)
+    function handleCommitMove(uint256 requestId, uint8 card, bytes[] memory signatures) external virtual;
+    function handleCommitMarketDeck(uint256 requestId, uint256[2] memory marketDeck, bytes[] memory signatures)
         external
         virtual;
-    function handleCommitMarketDeck(
-        uint256 requestId,
-        uint256[2] memory marketDeck,
-        bytes[] memory signatures
-    ) external virtual;
 }

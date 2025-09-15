@@ -2,13 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {
-    FHE,
-    euint128,
-    euint256,
-    euint64,
-    externalEuint128,
-    externalEuint256,
-    externalEuint64
+    FHE, euint128, euint256, euint64, externalEuint128, externalEuint256, externalEuint64
 } from "fhevm/lib/FHE.sol";
 
 contract EInputHandler {

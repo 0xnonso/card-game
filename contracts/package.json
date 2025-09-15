@@ -1,7 +1,7 @@
 {
-  "name": "@whot/contracts",
+  "name": "@cards/contracts",
   "version": "1.0.0",
-  "description": "Whot Smart Contracts",
+  "description": "Cards Smart Contracts",
   "private": true,
   "scripts": {
     "compile": "forge build",

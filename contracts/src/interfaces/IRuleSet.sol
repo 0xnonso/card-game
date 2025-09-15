@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Action as GameAction, PendingAction as GamePendingAction} from "../libraries/WhotLib.sol";
+import {Action as GameAction, PendingAction as GamePendingAction} from "../libraries/CardEngineLib.sol";
+import {Card} from "../types/Card.sol";
 import {PlayerStoreMap} from "../types/Map.sol";
-import {WhotCard} from "../types/WhotCard.sol";
 
 interface IRuleSet {
-    enum Action {
+    enum EngineOp {
         None,
         PickOne,
         PickTwo,
@@ -29,18 +29,18 @@ interface IRuleSet {
     // Suspension,
     // GeneralMarket
 
-    struct MoveValidationResult {
-        Action action;
-        WhotCard callCard;
+    struct Effect {
+        EngineOp op;
+        Card callCard;
         uint8 againstPlayerIndex;
         uint8 nextPlayerIndex;
     }
 
-    struct MoveValidationParams {
+    struct ResolveMoveParams {
         GameAction gameAction;
         GamePendingAction pendingAction;
-        WhotCard card;
-        WhotCard callCard;
+        Card card;
+        Card callCard;
         uint256 cardSize;
         uint8 currentPlayerIndex;
         PlayerStoreMap playerStoreMap;
@@ -48,27 +48,18 @@ interface IRuleSet {
         bytes extraData;
     }
 
-    function validateMove(MoveValidationParams memory params)
-        external
-        view
-        returns (MoveValidationResult memory);
+    function resolveMove(ResolveMoveParams memory params) external view returns (Effect memory);
 
-    function computeStartIndex(PlayerStoreMap playerStoreMap)
-        external
-        view
-        returns (uint8 startIndex);
+    function computeStartIndex(PlayerStoreMap playerStoreMap) external view returns (uint8 startIndex);
 
     function computeNextTurnIndex(PlayerStoreMap playerStoreMap, uint256 currentPlayerIndex)
         external
         view
         returns (uint8 nextPlayerIndex);
 
-    function isSpecialMoveCard(WhotCard card) external view returns (bool);
+    function isSpecialMoveCard(Card card) external view returns (bool);
 
-    function getCardAttributes(WhotCard card, uint256 cardSize)
-        external
-        view
-        returns (uint256 shape, uint256 cardNumber);
+    function getCardAttributes(Card card, uint256 cardSize) external view returns (uint256 shape, uint256 cardNumber);
 
     function supportsCardSize(uint256 cardSize) external view returns (bool);
 }
