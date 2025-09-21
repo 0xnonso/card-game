@@ -1,61 +1,70 @@
-// // SPDX-License-Identifier: UNLICENSED
-// pragma solidity ^0.8.24;
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.24;
 
-// import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
-// import "fhevm/lib/FHE.sol";
+import "./types/PackedInputProof.sol";
+import "fhevm/lib/FHE.sol";
+import "solady/src/auth/Ownable.sol";
 
-// contract TrustedShuffleService {
-//     // struct ShuffleData {
-//     //     uint256 shuffleRounds;
-//     //     euint32[] whotCard;
-//     // }
-//     address public immutable TSS_AGENT;
+contract TrustedShuffleService is Ownable {
+    address public immutable TSS_AGENT;
+    address public importer;
+    PackedInputProof[] internal inputProofRoots;
+    InputProofCursor internal inputProofCursor;
 
-//     bytes32[] public shuffledCardDeckRoots;
+    struct InputProofCursor {
+        uint16 remainingHandles;
+        uint16 arrayIndex;
+        PackedInputProof currentPackedInputProof;
+    }
 
-//     // deckIndex -> amount of input proofs used | mont ashuffledCardDeckRoots array index
+    modifier onlyTssAgent() {
+        require(msg.sender == TSS_AGENT, "only tss agent");
+        _;
+    }
 
-//     mapping(bytes32 nullifierHash => bool) internal nullifier;
+    modifier onlyImporter() {
+        require(msg.sender == importer, "only importer");
+        _;
+    }
 
-//     event ShuffledCardDeckRootUpdated(bytes32 deckRoot);
+    constructor(address tssAgent) {
+        TSS_AGENT = tssAgent;
+        _initializeOwner(msg.sender);
+    }
 
-//     modifier onlyTssAgent() {
-//         require(msg.sender == TSS_AGENT, "TSS: Only TSS Agent can call this function");
-//         _;
-//     }
+    event InputProofStored(address ptr, uint16 numProofs, uint16 proofSize);
+    event InputProofUsed(uint256 indexed index, uint16 remainingHandles);
+    event ImporterChanged(address indexed newImporter);
 
-//     constructor(address _tssAgent) {
-//         TSS_AGENT = _tssAgent;
-//     }
+    function storeInputProofs(bytes calldata packedProofs, uint256 numInputProofs, uint256 proofSize)
+        external
+        onlyTssAgent
+    {
+        PackedInputProof memory packedInputProof = PackedInputProofLib.store(packedProofs, numInputProofs, proofSize);
+        inputProofRoots.push(packedInputProof);
 
-//     function verifyAndUseShuffledCardDeck(
-//         bytes32[] memory proof,
-//         einput[2] memory leaf,
-//         uint256 shuffledCardDeckRootIndex
-//     ) public {
-//         bytes32 leafHash = keccak256(abi.encode(leaf));
-//         bytes32 rootHash = shuffledCardDeckRoots[shuffledCardDeckRootIndex];
-//         require(MerkleProof.verify(proof, rootHash, leafHash), "TSS: Invalid merkle root");
-//         bytes32 nullifierHash = keccak256(abi.encode(leafHash, rootHash));
-//         require(!nullifier[nullifierHash], "TSS: leaf already used");
-//         nullifier[nullifierHash] = true;
-//     }
+        emit InputProofStored(packedInputProof.ptr, packedInputProof.numProofs, packedInputProof.proofSize);
+    }
 
-//     function updateShuffledCardDeck(bytes32 deckRoot) public onlyTssAgent {
-//         shuffledCardDeckRoots.push(deckRoot);
-//         emit ShuffledCardDeckRootUpdated(deckRoot);
-//     }
+    function useInputProof()
+        external
+        onlyImporter
+        returns (externalEuint256 handle1, externalEuint256 handle2, bytes memory proof)
+    {
+        InputProofCursor memory cursor = inputProofCursor;
+        if (cursor.remainingHandles == 0) {
+            cursor.currentPackedInputProof = inputProofRoots[cursor.arrayIndex++];
+            cursor.remainingHandles = cursor.currentPackedInputProof.numProofs * 4;
+        }
+        (handle1, handle2, proof) = PackedInputProofLib.get(cursor.currentPackedInputProof, cursor.remainingHandles);
+        cursor.remainingHandles--;
+        inputProofCursor = cursor;
 
-//     function updateShuffledCardDeck(bytes[][] memory shuffledCardDeckWithProof)
-//         public
-//         onlyTssAgent
-//     {}
+        emit InputProofUsed(cursor.arrayIndex, cursor.remainingHandles);
+    }
 
-//     function getShuffledCardDeckRoots() public view returns (bytes32[] memory) {
-//         return shuffledCardDeckRoots;
-//     }
-
-//     function getShuffledCardDeckRootAtIndex(uint256 index) public view returns (bytes32) {
-//         return shuffledCardDeckRoots[index];
-//     }
-// }
+    function setProofImporter(address _importer) external onlyOwner {
+        importer = _importer;
+        emit ImporterChanged(_importer);
+    }
+}
