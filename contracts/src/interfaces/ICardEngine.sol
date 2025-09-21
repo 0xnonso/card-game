@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
-import {IRuleset} from "./interfaces/IRuleset.sol";
-import {Action, PendingAction, GameStatus} from "./libraries/CardEngineLib.sol";
-import {DeckMap, PlayerStoreMap} from "./types/Map.sol";
-import {Card} from "./types/Card.sol";
+import {EInputData} from "../base/EInputHandler.sol";
+import {Action, GameStatus, PendingAction} from "../libraries/CardEngineLib.sol";
+import {Card} from "../types/Card.sol";
+import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
+import {IRuleset} from "./IRuleset.sol";
 import {euint256} from "fhevm/lib/FHE.sol";
-import {EInputData} from "./base/EInputHandler.sol";
 
 interface ICardEngine {
     function createGame(
@@ -27,10 +27,6 @@ interface ICardEngine {
     function executeMove(uint256 gameId, Action action) external;
     function forfeit(uint256 gameId) external;
     function bootOut(uint256 gameId) external;
-
-    function handleCommitMove(uint256 requestId, uint8 rawCard, bytes[] memory signatures) external;
-    function handleCommitMarketDeck(uint256 requestId, uint256[2] memory marketDeck, bytes[] memory signatures)
-        external;
 
     function getPlayerHand(uint256 gameId, uint256 playerIndex)
         external

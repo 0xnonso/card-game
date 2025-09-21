@@ -36,7 +36,6 @@ library WhotCardStandardLibx8 {
     }
 
     function number(Card card) internal pure returns (uint8) {
-        // card.into?
         return Card.unwrap(card) & 0x1F;
     }
 

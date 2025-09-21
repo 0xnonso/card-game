@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {IRNG} from "../interfaces/IRNG.sol";
 import {IRuleset} from "../interfaces/IRuleset.sol";
-import {ConditionalsLib} from "../libraries/ConditionalsLib.sol";
 import {Action as GameAction, PendingAction as GamePendingAction} from "../libraries/CardEngineLib.sol";
+import {ConditionalsLib} from "../libraries/ConditionalsLib.sol";
 import {Card, WhotCardStandardLibx8} from "../types/Card.sol";
 import {PlayerStoreMap} from "../types/Map.sol";
 
@@ -22,7 +22,7 @@ contract WhotRuleset is IRuleset {
     }
 
     // Example function to validate a move
-    function resolveMove(ResolveMoveParams memory params) public view override returns (Effect memory effect) {
+    function resolveMove(ResolveMoveParams memory params) public pure returns (Effect memory effect) {
         if (!params.callCard.matchWhot(params.card)) {
             revert();
         }
@@ -83,34 +83,32 @@ contract WhotRuleset is IRuleset {
         }
     }
 
-    function computeStartIndex(PlayerStoreMap playerStoreMap) public view override returns (uint8 startIdx) {
+    function computeStartIndex(PlayerStoreMap playerStoreMap) public view returns (uint8 startIdx) {
         return uint8(rng.generatePseudoRandomNumber() % playerStoreMap.len());
     }
 
     function computeNextTurnIndex(PlayerStoreMap playerStoreMap, uint256 currentPlayerIndex)
         public
-        view
-        override
+        pure
         returns (uint8 nextTurnIdx)
     {
         return playerStoreMap.getNextIndexFrom_RL(uint8(currentPlayerIndex));
     }
 
-    function isSpecialMoveCard(Card card) public view override returns (bool) {}
+    function isSpecialMoveCard(Card card) public pure returns (bool) {}
 
     function getCardAttributes(Card card, uint256)
         /**
          * cardSize
          */
         public
-        view
-        override
+        pure
         returns (uint256 cardId, uint256 cardValue)
     {
         return (uint256(card.shape()), card.number());
     }
 
-    function supportsCardSize(uint256 cardBitsSize) public pure override returns (bool) {
+    function supportsCardSize(uint256 cardBitsSize) public pure returns (bool) {
         return cardBitsSize == CARD_SIZE_8;
     }
 }

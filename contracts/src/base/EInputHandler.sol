@@ -5,21 +5,21 @@ import {
     FHE, euint128, euint256, euint64, externalEuint128, externalEuint256, externalEuint64
 } from "fhevm/lib/FHE.sol";
 
+enum InputOneType {
+    _EUINT64,
+    _EUINT128,
+    _EUINT256
+}
+
+struct EInputData {
+    externalEuint256 inputZero;
+    InputOneType inputOneType;
+    externalEuint64 inputOne64;
+    externalEuint128 inputOne128;
+    externalEuint256 inputOne256;
+}
+
 contract EInputHandler {
-    enum InputOneType {
-        _EUINT64,
-        _EUINT128,
-        _EUINT256
-    }
-
-    struct EInputData {
-        externalEuint256 inputZero;
-        InputOneType inputOneType;
-        externalEuint64 inputOne64;
-        externalEuint128 inputOne128;
-        externalEuint256 inputOne256;
-    }
-
     function _handleInputData(EInputData calldata einputData, bytes calldata inputProof)
         internal
         returns (euint256[2] memory out)

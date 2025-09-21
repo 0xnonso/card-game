@@ -2,8 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {GameData, GameStatus} from "../libraries/CardEngineLib.sol";
-import {PlayerStoreMap} from "./Map.sol";
+
 import {Card} from "./Card.sol";
+import {PlayerStoreMap} from "./Map.sol";
 
 type CacheValue is uint256;
 
@@ -89,7 +90,7 @@ library GameCacheManager {
         assembly ("memory-safe") {
             slot := $.slot
         }
-        value = CacheValue.toCachedValue(slot);
+        value = CacheManager.toCachedValue(slot);
     }
 
     function gameCreator(CacheValue value) internal pure returns (address) {
@@ -181,6 +182,6 @@ library GameCacheManager {
     }
 }
 
-using TournamentCacheManager for TournamentCacheValue global;
+// using TournamentCacheManager for TournamentCacheValue global;
 
-library TournamentCacheManager {}
+// library TournamentCacheManager {}

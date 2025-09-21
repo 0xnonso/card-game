@@ -5,7 +5,7 @@ import {Action as GameAction, PendingAction as GamePendingAction} from "../libra
 import {Card} from "../types/Card.sol";
 import {PlayerStoreMap} from "../types/Map.sol";
 
-interface IRuleSet {
+interface IRuleset {
     enum EngineOp {
         None,
         PickOne,
@@ -25,9 +25,6 @@ interface IRuleSet {
         PickPendingSeven,
         PickPendingEight
     }
-    // HoldOn
-    // Suspension,
-    // GeneralMarket
 
     struct Effect {
         EngineOp op;
@@ -49,17 +46,12 @@ interface IRuleSet {
     }
 
     function resolveMove(ResolveMoveParams memory params) external view returns (Effect memory);
-
     function computeStartIndex(PlayerStoreMap playerStoreMap) external view returns (uint8 startIndex);
-
     function computeNextTurnIndex(PlayerStoreMap playerStoreMap, uint256 currentPlayerIndex)
         external
         view
         returns (uint8 nextPlayerIndex);
-
     function isSpecialMoveCard(Card card) external view returns (bool);
-
     function getCardAttributes(Card card, uint256 cardSize) external view returns (uint256 shape, uint256 cardNumber);
-
     function supportsCardSize(uint256 cardSize) external view returns (bool);
 }

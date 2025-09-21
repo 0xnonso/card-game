@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {FHE, euint256, euint8} from "fhevm/lib/FHE.sol";
 
-import {IRuleSet} from "../interfaces/IRuleSet.sol";
+import {IRuleset} from "../interfaces/IRuleset.sol";
 
 import {Card, CardLib} from "../types/Card.sol";
 import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
@@ -51,7 +51,7 @@ struct GameData {
     uint8 packedJoinCapacity;
     uint8 initialHandSize;
     PlayerStoreMap playerStoreMap;
-    IRuleSet ruleSet;
+    IRuleset ruleSet;
     DeckMap marketDeckMap;
     euint256[2] marketDeck;
     PlayerData[] players;

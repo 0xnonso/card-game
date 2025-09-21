@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
-import {IRuleSet} from "../interfaces/IRuleSet.sol";
+import {IRuleset} from "../interfaces/IRuleset.sol";
 import {Action, GameStatus, PendingAction} from "./CardEngineLib.sol";
 
 library ConditionalsLib {
@@ -59,7 +59,7 @@ library ConditionalsLib {
         }
     }
 
-    function notEqs(IRuleSet.EngineOp a, IRuleSet.EngineOp b) internal pure returns (bool c) {
+    function notEqs(IRuleset.EngineOp a, IRuleset.EngineOp b) internal pure returns (bool c) {
         assembly {
             c := iszero(eq(a, b))
         }

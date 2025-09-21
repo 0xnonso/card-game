@@ -5,6 +5,5 @@ libs = ["lib"]
 
 [profile.default.fmt]
 sort_imports = true
-line_length = 100
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
