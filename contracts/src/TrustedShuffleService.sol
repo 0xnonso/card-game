@@ -51,9 +51,11 @@ contract TrustedShuffleService is Ownable {
         onlyImporter
         returns (externalEuint256 handle1, externalEuint256 handle2, bytes memory proof)
     {
+        // how to handle the initial case where there is no currentPackedInputProof?
         InputProofCursor memory cursor = inputProofCursor;
-        if (cursor.remainingHandles == 0) {
-            cursor.currentPackedInputProof = inputProofRoots[cursor.arrayIndex++];
+        bool currentPtrIsEmpty = cursor.currentPackedInputProof.ptr == address(0);
+        if (cursor.remainingHandles == 0 || currentPtrIsEmpty) {
+            cursor.currentPackedInputProof = inputProofRoots[currentPtrIsEmpty ? 0 : cursor.arrayIndex++];
             cursor.remainingHandles = cursor.currentPackedInputProof.numProofs * 4;
         }
         (handle1, handle2, proof) = PackedInputProofLib.get(cursor.currentPackedInputProof, cursor.remainingHandles);

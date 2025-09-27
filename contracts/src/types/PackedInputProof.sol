@@ -13,11 +13,10 @@ struct PackedInputProof {
 using PackedInputProofLib for PackedInputProof global;
 
 library PackedInputProofLib {
-    function store(
-        bytes memory data,
-        uint256 numInputProofs,
-        uint256 proofSize
-    ) internal returns (PackedInputProof memory packedInputProof) {
+    function store(bytes memory data, uint256 numInputProofs, uint256 proofSize)
+        internal
+        returns (PackedInputProof memory packedInputProof)
+    {
         address ptr = SSTORE2.write(data);
         packedInputProof = PackedInputProof({numProofs: uint16(numInputProofs), proofSize: uint16(proofSize), ptr: ptr});
     }
