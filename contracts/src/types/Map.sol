@@ -8,6 +8,7 @@ type DeckMap is uint64;
 
 // marketDeckMap - deckMap | card bit size | mapdata(in our case proposed player) | len - 6 bits
 
+//
 using DeckMapLib for DeckMap global;
 
 library DeckMapLib {
@@ -16,27 +17,27 @@ library DeckMapLib {
     error IndexNotEmpty();
 
     function rawMap(DeckMap deckMap) internal pure returns (uint56) {
-        return uint56(DeckMap.unwrap(deckMap) >> 8);
+        return uint56(DeckMap.unwrap(deckMap) >> 2);
+    }
+
+    function newMap(DeckMap deckMap) internal pure returns (DeckMap) {
+        return DeckMap.wrap(DeckMap.unwrap(deckMap) & 0x03);
     }
 
     function isEmpty(DeckMap deckMap, uint256 idx) internal pure returns (bool) {
-        return DeckMap.unwrap(deckMap) & (uint256(1) << (idx + 8)) == 0;
+        return deckMap.rawMap() & (uint256(1) << idx) == 0;
     }
 
     function isNotEmpty(DeckMap deckMap, uint256 idx) internal pure returns (bool) {
-        return DeckMap.unwrap(deckMap) & (uint256(1) << (idx + 8)) != 0;
+        return deckMap.rawMap() & (uint256(1) << idx) != 0;
     }
 
-    function isMapEmpty(DeckMap deckMap) internal pure returns (bool _isEmpty) {
-        assembly {
-            _isEmpty := iszero(and(deckMap, not(0xC0)))
-        }
+    function isMapEmpty(DeckMap deckMap) internal pure returns (bool) {
+        return deckMap.rawMap() == 0;
     }
 
-    function isMapNotEmpty(DeckMap deckMap) internal pure returns (bool _isNotEmpty) {
-        assembly {
-            _isNotEmpty := iszero(iszero(and(deckMap, not(0xC0))))
-        }
+    function isMapNotEmpty(DeckMap deckMap) internal pure returns (bool) {
+        return deckMap.rawMap() != 0;
     }
 
     function len(DeckMap deckMap) internal pure returns (uint256) {
@@ -44,7 +45,7 @@ library DeckMapLib {
     }
 
     function getDeckCardSize(DeckMap deckMap) internal pure returns (uint256) {
-        return 8 - ((DeckMap.unwrap(deckMap) >> 6) & 0x03);
+        return 8 - (deckMap.rawMap() & 0x03);
     }
 
     function getNonEmptyIdxs(DeckMap deckMap) internal pure returns (uint256[] memory) {
@@ -107,26 +108,32 @@ library DeckMapLib {
     }
 
     function set(DeckMap deckMap, uint256 idx, bool empty) internal pure returns (DeckMap) {
-        // if (idx > deckMap.len()) revert IndexOutOfBounds(); //revert("DeckMapLib: Idx out of bounds");
-        uint256 map = empty
-            ? (DeckMap.unwrap(deckMap) + 1) | (uint256(1) << (idx + 8))
-            : (DeckMap.unwrap(deckMap) - 1) & ~(uint256(1) << (idx + 8));
-        // uint256 mask = 1 << (idx + 10);
-        // uint256 map = DeckMap.unwrap(deckMap);
-        // int256 b;
-        // console.log("raw map1: ", rawMap);
-        // assembly {
-        //     rawMap := xor(map, and(xor(sub(empty, 1), map), mask))
-        // }
-        // console.log("raw map2: ", rawMap + 1);
-        // // b = -b;
-
+        uint256 map = DeckMap.unwrap(deckMap);
+        // assumes the usable bit-range fits before wrapping to uint56
+        uint256 mask = uint256(1) << (idx + 2);
+        // branchless: write bit = empty (0/1)
+        map = (map & ~mask) | (uint256(empty ? 0 : 1) * mask);
+        return DeckMap.wrap(uint56(map));
+        // // if (idx > deckMap.len()) revert IndexOutOfBounds(); //revert("DeckMapLib: Idx out of bounds");
+        // uint256 map = empty
+        //     ? DeckMap.unwrap(deckMap) | (uint256(1) << (idx + 2))
+        //     : DeckMap.unwrap(deckMap) & ~(uint256(1) << (idx + 2));
+        // // uint256 mask = 1 << (idx + 10);
+        // // uint256 map = DeckMap.unwrap(deckMap);
+        // // int256 b;
+        // // console.log("raw map1: ", rawMap);
         // // assembly {
-        // //     map := xor(map, mask)
+        // //     rawMap := xor(map, and(xor(sub(empty, 1), map), mask))
         // // }
-        // // return map ^ (uint256(-b) ^ map) & mask;
-        return DeckMap.wrap(uint64(map));
-        // return DeckMap.wrap(uint64(map ^ (uint256(-b) ^ map) & mask));
+        // // console.log("raw map2: ", rawMap + 1);
+        // // // b = -b;
+
+        // // // assembly {
+        // // //     map := xor(map, mask)
+        // // // }
+        // // // return map ^ (uint256(-b) ^ map) & mask;
+        // return DeckMap.wrap(uint56(map));
+        // // return DeckMap.wrap(uint64(map ^ (uint256(-b) ^ map) & mask));
     }
 
     function setToEmpty(DeckMap deckMap, uint256 idx) internal pure returns (DeckMap) {
@@ -151,7 +158,7 @@ library DeckMapLib {
         if (mask & map != mask) revert IndexIsEmpty(); //revert("DeckMapLib: Idx not empty");
         // to  clear:
         // uint64 deckMapLen = deckMap.len();
-        return DeckMap.wrap(uint64((~mask & map) << 8 | deckMap.len() - idxsLen));
+        return DeckMap.wrap(uint56((~mask & map) << 2 | (DeckMap.unwrap(deckMap) & 0x03)));
         // if (deckMap.isEmpty(idx)) revert("DeckMapLib: Idx already empty");
         // return deckMap.set(idx, false);
     }
@@ -167,7 +174,7 @@ library DeckMapLib {
         }
         // set to filled with mask!
         if (mask & map != 0) revert IndexNotEmpty(); //("DeckMapLib: Idx already filled");
-        return DeckMap.wrap(uint64((mask | map) << 8 | (deckMap.len() + idxsLen)));
+        return DeckMap.wrap(uint56(mask << 2 | DeckMap.unwrap(deckMap)));
 
         // if (deckMap.isNotEmpty(idx)) revert("DeckMapLib: Idx already filled");
         // return set(deckMap, idx, true);
@@ -220,7 +227,8 @@ library DeckMapLib {
     }
 }
 
-type PlayerStoreMap is uint16;
+type PlayerStoreMap is uint8;
+// playerStoreMap - uint8;
 
 using PlayerStoreMapLib for PlayerStoreMap global;
 
@@ -231,35 +239,34 @@ library PlayerStoreMapLib {
     error IndexNotEmpty(uint256);
     error MapIsEmpty(PlayerStoreMap);
 
+    function rawMap(PlayerStoreMap playerStoreMap) internal pure returns (uint8) {
+        return PlayerStoreMap.unwrap(playerStoreMap);
+    }
+
     function isEmpty(PlayerStoreMap playerStoreMap, uint256 idx) internal pure returns (bool) {
-        return (PlayerStoreMap.unwrap(playerStoreMap) & (uint256(1) << (idx + 8))) == 0;
+        return playerStoreMap.rawMap() & (uint256(1) << idx) == 0;
     }
 
     function isNotEmpty(PlayerStoreMap playerStoreMap, uint256 idx) internal pure returns (bool) {
-        return (PlayerStoreMap.unwrap(playerStoreMap) & (uint256(1) << (idx + 8))) != 0;
+        return playerStoreMap.rawMap() & (uint256(1) << (idx)) != 0;
     }
 
     function isMapEmpty(PlayerStoreMap playerStoreMap) internal pure returns (bool) {
-        return PlayerStoreMap.unwrap(playerStoreMap) == 0;
+        return playerStoreMap.rawMap() == 0;
     }
 
     function isMapNotEmpty(PlayerStoreMap playerStoreMap) internal pure returns (bool) {
-        return PlayerStoreMap.unwrap(playerStoreMap) != 0;
+        return playerStoreMap.rawMap() != 0;
     }
 
     function len(PlayerStoreMap playerStoreMap) internal pure returns (uint256) {
         return PlayerStoreMap.unwrap(playerStoreMap) & 0x0f;
     }
 
-    function rawMap(PlayerStoreMap playerStoreMap) internal pure returns (uint8) {
-        return uint8(PlayerStoreMap.unwrap(playerStoreMap) >> 8);
-    }
-
     function popCount(PlayerStoreMap playerStoreMap) internal pure returns (uint256 count) {
-        uint8 map = playerStoreMap.rawMap();
         assembly {
-            let lo := and(map, 0x0f)
-            let hi := shr(0x04, map)
+            let lo := and(playerStoreMap, 0x0f)
+            let hi := shr(0x04, playerStoreMap)
             // forgefmt: disable-next-item
             count := add(
                     byte(lo, 0x0001010201020203010202030203030400000000000000000000000000000000),
@@ -268,9 +275,9 @@ library PlayerStoreMapLib {
         }
     }
 
-    function getNumProposedPlayers(PlayerStoreMap playerStoreMap) internal pure returns (uint8 num) {
-        num = (playerStoreMap.rawMap() >> 4) & 0x0f;
-    }
+    // function getNumProposedPlayers(PlayerStoreMap playerStoreMap) internal pure returns (uint8 num) {
+    //     num = (playerStoreMap.rawMap() >> 4) & 0x0f;
+    // }
 
     function getNonEmptyIdxs(PlayerStoreMap playerStoreMap) internal pure returns (uint256[] memory) {
         uint256[] memory idxs = new uint256[](playerStoreMap.len());
@@ -300,7 +307,7 @@ library PlayerStoreMapLib {
         if (map.isNotEmpty(idx)) {
             revert IndexNotEmpty(idx); //("PlayerStoreMapLib: Idx already occupied");
         }
-        return PlayerStoreMap.wrap(uint16((PlayerStoreMap.unwrap(map) + 1) | (uint256(1) << idx)));
+        return PlayerStoreMap.wrap(uint8(map.rawMap() | (uint256(1) << idx)));
     }
 
     function removePlayer(PlayerStoreMap map, uint256 idx) internal pure returns (PlayerStoreMap) {
@@ -309,7 +316,7 @@ library PlayerStoreMapLib {
         if (map.isEmpty(idx)) {
             revert IndexIsEmpty(idx); //("PlayerStoreMapLib: Idx already empty");
         }
-        return PlayerStoreMap.wrap(uint16((PlayerStoreMap.unwrap(map) - 1) & ~(uint256(1) << idx)));
+        return PlayerStoreMap.wrap(uint8(map.rawMap() & ~(uint256(1) << idx)));
     }
 
     // function getActivePlayers(PlayerStoreMap playerStoreMap)
