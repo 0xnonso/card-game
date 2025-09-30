@@ -111,20 +111,6 @@ contract CacheManagerFuzzTest is Test {
         assertEq(uint256(got), uint256(value));
     }
 
-    function testFuzz_storeLoadU256(uint8 rawPtr, uint256 value, uint256 index) public {
-        uint8 ptr = clampPtr(rawPtr, 32);
-        uint256 slot = BASE_SLOT + (index % 256);
-        writeSlot(slot, 0);
-
-        CacheValue v = CacheManager.toCachedValue(slot);
-        CacheValue updated = v.storeU256(ptr, value);
-        CacheManager.toStorage(updated, slot);
-
-        CacheValue loaded = CacheManager.toCachedValue(slot);
-        uint256 got = loaded.loadU256(ptr);
-        assertEq(got, value);
-    }
-
     function testFuzz_toCachedValueToStorage(uint256 rawValue, uint256 index) public {
         uint256 slot = BASE_SLOT + (index % 1024);
         writeSlot(slot, rawValue);

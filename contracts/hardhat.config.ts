@@ -17,6 +17,11 @@ const config: HardhatUserConfig = {
   paths: {
     sources: "src"
   },
+  networks: {
+    hardhat: {
+      allowUnlimitedContractSize: true,
+    },
+  },
   solidity: {
     version: '0.8.29',
     settings: {
@@ -37,11 +42,11 @@ const config: HardhatUserConfig = {
     outDir: 'types',
     target: 'ethers-v6',
   },
-//   docgen: require('./docs/config'),
-//   exposed: {
-//     imports: true,
-//     initializers: true,
-//   },
+  // docgen: require('./docs/config'),
+  exposed: {
+    imports: true,
+    initializers: true,
+  },
 };
 
 export default config;

@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {EInputData} from "../base/EInputHandler.sol";
 import {Action, GameStatus, PendingAction} from "../libraries/CardEngineLib.sol";
 import {Card} from "../types/Card.sol";
+
+import {HookPermissions} from "../types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
 import {IRuleset} from "./IRuleset.sol";
 import {euint256} from "fhevm/lib/FHE.sol";
@@ -18,7 +20,7 @@ interface ICardEngine {
         uint256 cardDeckSize,
         uint8 maxPlayers,
         uint8 initialHandSize,
-        bool enableManager
+        HookPermissions hookPermissions
     ) external returns (uint256 gameId);
 
     function joinGame(uint256 gameId) external;

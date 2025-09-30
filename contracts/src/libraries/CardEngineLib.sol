@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import {FHE, euint256, euint8} from "fhevm/lib/FHE.sol";
 
 import {IRuleset} from "../interfaces/IRuleset.sol";
-
 import {Card, CardLib} from "../types/Card.sol";
 import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
+import {HookPermissions} from "../types/Hook.sol";
 
 enum Action {
     Play,
@@ -49,12 +49,13 @@ struct GameData {
     uint40 lastMoveTimestamp;
     // maxPlayers | playersLeftToJoin;
     uint8 packedJoinCapacity;
-    uint8 initialHandSize;
+    HookPermissions hookPermissions;
     PlayerStoreMap playerStoreMap;
     uint8 numProposedPlayers;
     // card size
     IRuleset ruleSet;
     DeckMap marketDeckMap;
+    uint8 initialHandSize;
     euint256[2] marketDeck;
     PlayerData[] players;
     mapping(address => bool) isProposedPlayer;

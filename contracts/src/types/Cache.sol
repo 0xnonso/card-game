@@ -9,6 +9,15 @@ import {PlayerStoreMap} from "./Map.sol";
 type CacheValue is uint256;
 
 using CacheManager for CacheValue global;
+using {not_eq as !=, eq as ==} for CacheValue global;
+
+function not_eq(CacheValue a, CacheValue b) pure returns (bool) {
+    return CacheValue.unwrap(a) != CacheValue.unwrap(b);
+}
+
+function eq(CacheValue a, CacheValue b) pure returns (bool) {
+    return CacheValue.unwrap(a) == CacheValue.unwrap(b);
+}
 
 library CacheManager {
     function toCachedValue(uint256 slot) internal view returns (CacheValue value) {
@@ -81,13 +90,6 @@ library CacheManager {
 
     function loadU64(CacheValue value, uint8 ptr) internal pure returns (uint64) {
         return uint64(CacheValue.unwrap(value) >> ptr);
-    }
-
-    function storeU256(CacheValue value, uint8 ptr, uint256 _uint256) internal pure returns (CacheValue newValue) {
-        // forgefmt: disable-next-item
-        assembly ("memory-safe") {
-            newValue := or(and(value, not(shl(ptr, 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff))), shl(ptr, _uint256))
-        }
     }
 
     function loadU256(CacheValue value, uint8 ptr) internal pure returns (uint256) {

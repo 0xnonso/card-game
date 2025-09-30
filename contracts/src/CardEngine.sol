@@ -12,13 +12,16 @@ import {Action, CardEngineLib, GameData, GameStatus, PendingAction, PlayerData} 
 import {ConditionalsLib} from "./libraries/ConditionalsLib.sol";
 import {CacheManager, CacheValue} from "./types/Cache.sol";
 import {Card, CardLib} from "./types/Card.sol";
+
+import {Hook, HookPermissions} from "./types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "./types/Map.sol";
-import {FHE, euint256, euint8} from "fhevm/lib/FHE.sol";
+import {euint256, euint8} from "fhevm/lib/FHE.sol";
 import {ReentrancyGuard} from "solady/src/utils/ReentrancyGuard.sol";
 
-contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandler, ReentrancyGuard {
-    using FHE for *;
+contract CardEngine is ICardEngine, EInputHandler, CachePositionBase, AsyncHandler, ReentrancyGuard {
     using ConditionalsLib for *;
+    using Hook for IManagerHook;
+    using Hook for IManagerView;
 
     uint256 constant MAX_DELAY = 4 minutes;
     // Max number of players in a game.
@@ -29,7 +32,7 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
     uint256 internal cardGameId = 1;
 
     // Game Data.
-    mapping(uint256 gameId => GameData) internal cardGame;
+    mapping(uint256 gameId => GameData) private cardGame;
 
     /// ERRORS
     error PlayerAlreadyInGame();
@@ -70,7 +73,7 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         uint256 cardDeckSize,
         uint8 maxPlayers,
         uint8 initialHandSize,
-        bool enableManager
+        HookPermissions hookPermissions
     ) public returns (uint256 gameId) {
         gameId = cardGameId;
         GameData storage game = cardGame[gameId];
@@ -89,32 +92,31 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         }
 
         {
-            (CacheValue g, uint256 slot) = loadCache(game, 1);
+            Cache memory g = loadCache(game, 1);
 
             // set game ruleset and validate card size.
-            g = storeRuleset(g, gameRuleset);
+            storeRuleset(g, gameRuleset);
             if (!gameRuleset.supportsCardSize(cardBitSize)) revert CardSizeNotSupported();
             // initialize market deck map with card size and deck size.
-            g = storeMarketDeckMap(g, CardEngineLib.initializeMarketDeckMap(cardDeckSize, cardBitSize));
-            g.toStorage(slot);
+            storeMarketDeckMap(g, CardEngineLib.initializeMarketDeckMap(cardDeckSize, cardBitSize));
+            storeHandSize(g, initialHandSize); // set initial hand size.
+            toStorage(g);
 
-            (g, slot) = loadCache(game, 0);
+            g = loadCache(game, 0);
 
-            g = storeMaxPlayers(g, maxPlayers); // set max players.
-            g = storeNumProposedPlayers(g, numProposedPlayers);
-            g = storePlayersLeftToJoin(g, maxPlayers); // initially, players left to join is max players.
+            storeMaxPlayers(g, maxPlayers); // set max players.
+            storeNumProposedPlayers(g, numProposedPlayers);
+            storePlayersLeftToJoin(g, maxPlayers); // initially, players left to join is max players.
             // `gameCreator` is the msg.sender if `enableManager` is true, otherwise it's address(0).
-            g = storeGameCreator(g, enableManager ? msg.sender : address(0));
-            g = storeHandSize(g, initialHandSize); // set initial hand size.
-            g.toStorage(slot);
+            storeGameCreator(g, msg.sender);
+            storeHookPermissions(g, hookPermissions); // set initial hand size.
+            toStorage(g);
         }
 
         // initialize market deck.
         euint256[2] memory marketDeck = _handleInputData(inputData, inputProof);
         game.marketDeck[0] = marketDeck[0];
         game.marketDeck[1] = marketDeck[1];
-        FHE.allowThis(marketDeck[0]);
-        FHE.allowThis(marketDeck[1]);
 
         unchecked {
             cardGameId++;
@@ -125,7 +127,7 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
 
     function joinGame(uint256 gameId) public nonReentrant {
         GameData storage game = cardGame[gameId];
-        (CacheValue g, uint256 slot) = loadCache(game, 0);
+        Cache memory g = loadCache(game, 0);
 
         if (loadStatus(g).notEqs(GameStatus.None)) revert GameAlreadyStarted();
 
@@ -146,40 +148,30 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         if (isProposedPlayer) {
             playerStoreMap = game.addPlayer(playerToAdd, playerStoreMap);
             playersLeftToJoin--;
-            g = storePlayersLeftToJoin(g, playersLeftToJoin);
-            g = storePlayerStoreMap(g, playerStoreMap);
-            g.toStorage(slot);
+            storePlayersLeftToJoin(g, playersLeftToJoin);
+            storePlayerStoreMap(g, playerStoreMap);
+            toStorage(g);
         } else {
             revert NotProposedPlayer(playerToAdd);
         }
 
-        // if game creator is set, call `onJoinGame` hook.
-        // address gameCreator = loadGameCreator(g);
-        // IManagerHook(gameCreator).onJoinGame(loadHookPermission(g0), gameId, playerToAdd);
-        if (gameCreator != address(0)) {
-            IManagerHook(gameCreator).onJoinGame(gameId, playerToAdd);
-        }
+        // call `onJoinGame` hook.
+        IManagerHook(gameCreator).onJoinGame(loadHookPermissions(g), gameId, playerToAdd);
 
         emit PlayerJoined(gameId, playerToAdd);
     }
 
     function startGame(uint256 gameId) external {
         GameData storage game = cardGame[gameId];
-        PlayerData[] memory players = game.players;
 
-        CacheValue g0;
-        (CacheValue g1, uint256 slot1) = loadCache(game, 1);
+        Cache memory g0 = loadCache(game, 0);
+        Cache memory g1 = loadCache(game, 1);
 
-        address gameCreator;
-        uint256 joined;
+        address gameCreator = loadGameCreator(g0);
+        uint256 playersLeftToJoin = loadPlayersLeftToJoin(g0);
+        uint256 joined = loadMaxPlayers(g0) - playersLeftToJoin;
+
         {
-            uint256 slot0;
-            (g0, slot0) = loadCache(game, 0);
-
-            uint256 playersLeftToJoin = loadPlayersLeftToJoin(g0);
-            gameCreator = loadGameCreator(g0);
-            joined = loadMaxPlayers(g0) - playersLeftToJoin;
-
             // can only start game if:
             //  - `playersLeftToJoin` is zero (i.e all players have joined).
             //  - game creator is the caller and at least 2 players have joined.
@@ -194,32 +186,33 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
                 revert CannotStartGame();
             }
 
-            g0 = storeStatus(g0, GameStatus.Started);
+            storeStatus(g0, GameStatus.Started);
             // set player turn index to the computed start index by the ruleset.
-            g0 = storePlayerTurnIndex(g0, loadRuleset(g1).computeStartIndex(loadPlayerStoreMap(g0)));
-            g0.toStorage(slot0);
+            storePlayerTurnIndex(g0, loadRuleset(g1).computeStartIndex(loadPlayerStoreMap(g0)));
+            toStorage(g0);
         }
 
         DeckMap marketDeckMap = loadMarketDeckMap(g1);
-        uint8 handSize = loadHandSize(g0);
-        for (uint256 i = 0; i < players.length; i++) {
+        uint8 handSize = loadHandSize(g1);
+        uint256 playersLen = loadPlayerStoreMap(g0).len();
+        for (uint256 i = 0; i < playersLen; i++) {
             game.setPlayerScoreToMin(i);
-            marketDeckMap = game.dealInitialHand(players[i], i, marketDeckMap, joined, handSize);
+            marketDeckMap = game.dealInitialHand(game.players[i], i, marketDeckMap, joined, handSize);
         }
         // game.marketDeckMap = marketDeckMap;
-        g1 = storeMarketDeckMap(g1, marketDeckMap);
-        g1.toStorage(slot1);
+        storeMarketDeckMap(g1, marketDeckMap);
+        toStorage(g1);
 
         emit GameStarted(gameId);
 
         // if game creator is set, call `onStartGame` hook.
         // at this point, the game might end immediately if the call to the hook returns true.
         // this is to allow the game manager to force end a game if needed (i.e if the game does not require any moves to be played).
-        if (gameCreator != address(0)) {
-            bool end = IManagerHook(gameCreator).onStartGame(gameId);
+        bool shouldEndGame = IManagerHook(gameCreator).onStartGame(loadHookPermissions(g0), gameId);
+        if (shouldEndGame) {
             // `currentPlayerIdx` is set to 0. it does not matter what is passed here since the current player is not relevant here.
             // `playerStoreMap` is set to 0 to trigger the game end condition in `finish`.
-            if (end) finish(gameId, game, 0, PlayerStoreMap.wrap(0), loadMarketDeckMap(g1));
+            finish(gameId, game, 0, PlayerStoreMap.wrap(0), loadMarketDeckMap(g1));
         }
     }
 
@@ -227,7 +220,7 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         ensureNoCommittedAction(gameId);
 
         GameData storage game = cardGame[gameId];
-        (CacheValue g,) = loadCache(game, 0);
+        Cache memory g = loadCache(game, 0);
 
         ensureGameStarted(loadStatus(g));
 
@@ -256,8 +249,8 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
 
     function executeMove(uint256 gameId, Action action) external nonReentrant {
         GameData storage game = cardGame[gameId];
-        (CacheValue g0, uint256 slot0) = loadCache(game, 0);
-        (CacheValue g1, uint256 slot1) = loadCache(game, 1);
+        Cache memory g0 = loadCache(game, 0);
+        Cache memory g1 = loadCache(game, 1);
 
         ensureGameStarted(loadStatus(g0));
 
@@ -273,16 +266,13 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
 
         // if action is GoToMarket, player must not have a pending action.
         // if action is Pick, player must have a pending action.
-        (g0, g1) = goToMarketOrPick(gameId, game, action, playerTurnIdx, g0, g1);
-        g0.toStorage(slot0);
-        g1.toStorage(slot1);
+        goToMarketOrPick(gameId, game, action, playerTurnIdx, g0, g1);
 
-        // if game creator is set, call `onExecuteMove` hook with an empty card since no card is played.
-        address gameCreator = loadGameCreator(g0);
+        // call `onExecuteMove` hook with an empty card since no card is played.
         // Card(0xff) represents an invaild or empty card.
-        if (gameCreator != address(0)) {
-            IManagerHook(gameCreator).onExecuteMove(gameId, playerAddr, CardLib.toCard(0xff), action);
-        }
+        IManagerHook(loadGameCreator(g0)).onExecuteMove(
+            loadHookPermissions(g0), gameId, playerAddr, CardLib.toCard(0xff), action
+        );
         // finally, check if game can end.
         finish(gameId, game, playerTurnIdx, loadPlayerStoreMap(g0), loadMarketDeckMap(g1));
     }
@@ -290,20 +280,19 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
     function forfeit(uint256 gameId) external {
         GameData storage game = cardGame[gameId];
 
-        (CacheValue g0, uint256 slot0) = loadCache(game, 0);
-        (CacheValue g1,) = loadCache(game, 1);
+        Cache memory g0 = loadCache(game, 0);
+        Cache memory g1 = loadCache(game, 1);
 
         ensureGameStarted(loadStatus(g0));
 
         uint256 playerIdx = game.getPlayerIndex(msg.sender);
-        g0 = _forfeit(gameId, playerIdx, loadRuleset(g1), g0);
-        g0.toStorage(slot0);
+        _forfeit(gameId, playerIdx, loadRuleset(g1), g0);
         finish(gameId, game, playerIdx, loadPlayerStoreMap(g0), loadMarketDeckMap(g1));
     }
 
     function bootOut(uint256 gameId) external {
         GameData storage game = cardGame[gameId];
-        (CacheValue g0, uint256 slot0) = loadCache(game, 0);
+        Cache memory g0 = loadCache(game, 0);
 
         ensureGameStarted(loadStatus(g0));
 
@@ -313,23 +302,17 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
 
         bool canBootOut = (lastMoveTimestamp + MAX_DELAY) <= block.timestamp;
 
-        // if game creator is set, call `canBootOut` hook to check if player can be booted out.
+        // call `canBootOut` hook to check if player can be booted out.
         // this overrides the default boot out condition of `lastMoveTimestamp + MAX_DELAY <= block.timestamp`.
-        address gameCreator = loadGameCreator(g0);
-        if (gameCreator != address(0)) {
-            bytes memory payload =
-                abi.encodeWithSelector(IManagerView.canBootOut.selector, gameId, player, lastMoveTimestamp);
-            (bool success, bytes memory returnData) = gameCreator.call(payload);
-            if (!success) revert CallFailed();
-            canBootOut = abi.decode(returnData, (bool));
-        }
+        canBootOut = IManagerView(loadGameCreator(g0)).canBootOut(
+            loadHookPermissions(g0), gameId, player, lastMoveTimestamp, canBootOut
+        );
 
         if (!canBootOut) revert CannotBootOutPlayer(player);
 
-        (CacheValue g1,) = loadCache(game, 1);
+        Cache memory g1 = loadCache(game, 1);
 
-        g0 = _forfeit(gameId, turnIdx, loadRuleset(g1), g0);
-        g0.toStorage(slot0);
+        _forfeit(gameId, turnIdx, loadRuleset(g1), g0);
         finish(gameId, game, turnIdx, loadPlayerStoreMap(g0), loadMarketDeckMap(g1));
     }
 
@@ -341,24 +324,19 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         Card card = CardLib.toCard(rawCard);
         game.players[cc.playerIndex].deckMap = cc.updatedPlayerDeckMap;
 
-        (CacheValue g0, uint256 slot0) = loadCache(game, 0);
-        (CacheValue g1, uint256 slot1) = loadCache(game, 1);
+        Cache memory g0 = loadCache(game, 0);
+        Cache memory g1 = loadCache(game, 1);
 
         address gameCreator = loadGameCreator(g0);
+        HookPermissions hookPermissions = loadHookPermissions(g0);
 
         // execute the move.
-        (g0, g1) = playOrDefend(cc.gameId, game, cc.action, card, gameCreator, g0, g1, cc.extraData);
-        g0.toStorage(slot0);
-        g1.toStorage(slot1);
+        playOrDefend(game, cc, card, gameCreator, hookPermissions, g0, g1);
 
         // if game creator is set, call `onExecuteMove` hook.
-        if (gameCreator != address(0)) {
-            bytes memory payload = abi.encodeWithSelector(
-                IManagerHook.onExecuteMove.selector, cc.gameId, game.players[cc.playerIndex].playerAddr, card, cc.action
-            );
-            (bool success,) = gameCreator.call(payload);
-            if (!success) revert CallFailed();
-        }
+        IManagerHook(gameCreator).onExecuteMove(
+            hookPermissions, cc.gameId, game.players[cc.playerIndex].playerAddr, card, cc.action
+        );
         // clean up commitment and check if game can end.
         clearCommitment(cc.gameId, requestId);
         finish(cc.gameId, game, cc.playerIndex, loadPlayerStoreMap(g0), loadMarketDeckMap(g1));
@@ -383,28 +361,22 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
             game.calculateAndSetPlayerScore(playerIndexes[i], marketDeck);
         }
 
-        // if game creator is set, call `onFinishGame` hook with players score data.
+        // call `onFinishGame` hook with players score data.
         // players score data is computed as packed [score, address] value for each player in the game.
-        address gameCreator = game.gameCreator;
-        if (gameCreator != address(0)) {
-            uint256[] memory playersScoreData = new uint256[](players.length);
-            for (uint256 i = 0; i < playersScoreData.length; i++) {
-                PlayerData storage player = players[i];
-                assembly ("memory-safe") {
-                    let playerSlot := player.slot
-                    let slotValue := sload(playerSlot)
-                    let score := and(shr(232, slotValue), U16_MASK)
-                    let playerAddr := and(slotValue, ADDRESS_MASK)
-                    mstore(add(add(playersScoreData, 0x20), mul(i, 0x20)), or(shl(160, score), playerAddr))
-                    // get [score, address] value and set `playersScoreData[i] = value`
-                }
+        uint256[] memory playersScoreData = new uint256[](players.length);
+        for (uint256 i = 0; i < playersScoreData.length; i++) {
+            PlayerData storage player = players[i];
+            assembly ("memory-safe") {
+                let playerSlot := player.slot
+                let slotValue := sload(playerSlot)
+                let score := and(shr(232, slotValue), U16_MASK)
+                let playerAddr := and(slotValue, ADDRESS_MASK)
+                mstore(add(add(playersScoreData, 0x20), mul(i, 0x20)), or(shl(160, score), playerAddr))
+                // get [score, address] value and set `playersScoreData[i] = value`
             }
-
-            bytes memory payload =
-                abi.encodeWithSelector(IManagerHook.onFinishGame.selector, cmd.gameId, playersScoreData);
-            (bool success,) = gameCreator.call(payload);
-            if (!success) revert CallFailed();
         }
+        Cache memory g = loadCache(game, 0);
+        IManagerHook(loadGameCreator(g)).onFinishGame(loadHookPermissions(g), cmd.gameId, playersScoreData);
     }
 
     /// Fails silently. Might be an anti patern? Todo(nonso): fix?
@@ -417,7 +389,7 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
     ) internal {
         PlayerData memory player = game.players[currentPlayerIdx];
 
-        bool playerStoreEmpty = playerStoreMap.isMapEmpty() || playerStoreMap.len() == 1;
+        bool playerStoreSingle = playerStoreMap.len() == 1;
         bool gameMarketDeckEmpty = marketDeckMap.isMapEmpty();
         bool playerDeckEmpty = player.deckMap.isMapEmpty();
 
@@ -427,7 +399,7 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         //  - no player or only one player is active.
         bool shouldEnd;
         assembly ("memory-safe") {
-            shouldEnd := or(or(gameMarketDeckEmpty, playerDeckEmpty), playerStoreEmpty)
+            shouldEnd := or(or(gameMarketDeckEmpty, playerDeckEmpty), or(playerStoreSingle, iszero(playerStoreMap)))
         }
 
         if (shouldEnd) {
@@ -439,77 +411,71 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         }
     }
 
-    function _forfeit(uint256 gameId, uint256 playerIdx, IRuleset ruleset, CacheValue g0)
-        internal
-        returns (CacheValue)
-    {
-        g0 = storePlayerStoreMap(g0, loadPlayerStoreMap(g0).removePlayer(playerIdx));
+    function _forfeit(uint256 gameId, uint256 playerIdx, IRuleset ruleset, Cache memory g0) internal {
+        storePlayerStoreMap(g0, loadPlayerStoreMap(g0).removePlayer(playerIdx));
         // if the forfeiting player is the current player, update the turn index to the next player.
         if (loadPlayerTurnIndex(g0) == playerIdx) {
-            g0 = storePlayerTurnIndex(g0, ruleset.computeNextTurnIndex(loadPlayerStoreMap(g0), playerIdx));
+            storePlayerTurnIndex(g0, ruleset.computeNextTurnIndex(loadPlayerStoreMap(g0), playerIdx));
         }
+        toStorage(g0);
 
         emit PlayerForfeited(gameId, playerIdx);
-        return g0;
     }
 
     function playOrDefend(
-        uint256 gameId,
         GameData storage game,
-        Action action,
+        CommittedCard memory cc,
         Card card,
         address gameCreator,
-        CacheValue g0,
-        CacheValue g1,
-        bytes memory extraData
-    ) internal returns (CacheValue, CacheValue) {
-        PlayerData memory player;
-        IRuleset.ResolveMoveParams memory moveParams;
+        HookPermissions hookPermissions,
+        Cache memory g0,
+        Cache memory g1
+    ) internal {
+        uint8 currentIdx = loadPlayerTurnIndex(g0);
+        PlayerData memory player = game.players[currentIdx];
 
+        IRuleset ruleset = loadRuleset(g1);
+        // check if player is eligible for a special move. this is only possible if the game has a manager.
+        bool isEligibleForSpecialMove;
+        if (ruleset.isSpecialMoveCard(card)) {
+            isEligibleForSpecialMove = IManagerView(gameCreator).hasSpecialMoves(
+                hookPermissions, cc.gameId, player.playerAddr, card, cc.action
+            );
+        }
         {
-            uint8 currentIdx = loadPlayerTurnIndex(g0);
-            player = game.players[currentIdx];
             PendingAction pendingAction = player.pendingAction;
-
             // clear pending action if any.
             if (pendingAction.notEqs(PendingAction.None)) {
                 game.players[currentIdx].pendingAction = PendingAction.None;
             }
 
-            moveParams.gameAction = action;
-            moveParams.pendingAction = pendingAction;
-            moveParams.card = card;
-            moveParams.callCard = loadCallCard(g0);
-            moveParams.currentPlayerIndex = currentIdx;
-            moveParams.extraData = extraData;
-            moveParams.playerStoreMap = loadPlayerStoreMap(g0);
-        }
+            PlayerStoreMap playerStoreMap = loadPlayerStoreMap(g0);
 
-        IRuleset ruleset = loadRuleset(g1);
-        // address gameCreator = loadGameCreator(g0);
-        // check if player is eligible for a special move. this is only possible if the game has a manager.
-        bool isEligibleForSpecialMove = gameCreator != address(0) && ruleset.isSpecialMoveCard(moveParams.card)
-            ? IManagerView(gameCreator).hasSpecialMoves(gameId, player.playerAddr, moveParams.card, moveParams.gameAction)
-            : false;
+            IRuleset.ResolveMoveParams memory moveParams = IRuleset.ResolveMoveParams({
+                gameAction: cc.action,
+                pendingAction: pendingAction,
+                card: card,
+                callCard: loadCallCard(g0),
+                currentPlayerIndex: currentIdx,
+                extraData: cc.extraData,
+                playerStoreMap: playerStoreMap,
+                isSpecial: isEligibleForSpecialMove,
+                cardSize: loadMarketDeckMap(g1).getDeckCardSize()
+            });
 
-        moveParams.isSpecial = isEligibleForSpecialMove;
-        DeckMap marketDeckMap = loadMarketDeckMap(g1);
-        moveParams.cardSize = marketDeckMap.getDeckCardSize();
-
-        {
             // resolve move and get effect.
             IRuleset.Effect memory effect = ruleset.resolveMove(moveParams);
 
-            marketDeckMap = _applyEffect(game, effect, moveParams.playerStoreMap, marketDeckMap);
-            g1 = storeMarketDeckMap(g1, marketDeckMap);
+            _applyEffect(game, effect, playerStoreMap, g1);
+
             // update player turn index here.
-            g0 = storePlayerTurnIndex(g0, effect.nextPlayerIndex);
-            g0 = storeCallCard(g0, effect.callCard);
-            g0 = storeLastMoveTimestamp(g0, uint40(block.timestamp));
+            storePlayerTurnIndex(g0, effect.nextPlayerIndex);
+            storeCallCard(g0, effect.callCard);
+            storeLastMoveTimestamp(g0, uint40(block.timestamp));
+            toStorage(g0);
         }
 
-        emit MoveExecuted(gameId, moveParams.currentPlayerIndex, moveParams.gameAction);
-        return (g0, g1);
+        emit MoveExecuted(cc.gameId, currentIdx, cc.action);
     }
 
     function goToMarketOrPick(
@@ -517,9 +483,9 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
         GameData storage game,
         Action action,
         uint256 currentIndex,
-        CacheValue g0,
-        CacheValue g1
-    ) internal returns (CacheValue, CacheValue) {
+        Cache memory g0,
+        Cache memory g1
+    ) internal {
         PlayerData storage playerSlot = game.players[currentIndex];
         PlayerData memory player;
         // store only player address and deckMap.
@@ -548,23 +514,24 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
             emit PendingActionFulfilled(gameId, currentIndex, player.pendingAction);
         }
 
+        storeMarketDeckMap(g1, marketDeckMap);
         // compute next turn index.
         uint8 nextIdx = loadRuleset(g1).computeNextTurnIndex(loadPlayerStoreMap(g0), currentIndex);
         // update player turn index here.
-        g0 = storePlayerTurnIndex(g0, nextIdx);
-        g0 = storeLastMoveTimestamp(g0, uint40(block.timestamp));
-        // g0.toStorage(slot0);
+        storePlayerTurnIndex(g0, nextIdx);
+        storeLastMoveTimestamp(g0, uint40(block.timestamp));
+        toStorage(g0);
+        toStorage(g1);
 
         emit MoveExecuted(gameId, currentIndex, Action.Pick);
-        return (g0, g1);
     }
 
     function _applyEffect(
         GameData storage game,
         IRuleset.Effect memory effect,
         PlayerStoreMap playerStoreMap,
-        DeckMap marketDeckMap
-    ) internal returns (DeckMap) {
+        Cache memory g1
+    ) internal {
         // apply effect against player if any.
         IRuleset.EngineOp op = effect.op;
         if (op.notEqs(IRuleset.EngineOp.None)) {
@@ -575,6 +542,8 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
             if (playerStoreMap.isEmpty(againstPlayerIdx)) {
                 revert InvalidPlayerIndex();
             }
+
+            DeckMap marketDeckMap = loadMarketDeckMap(g1);
 
             // `PendingPick` vs `Pick`: `PendingPick` are `Pick` actions that are not resolved immediately, but must be resolved
             // by the affected player on their turn before they can perform any other action.
@@ -587,8 +556,11 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
                     game.dealPendingPickN(againstPlayerIdx, _op - 8);
                 } else {
                     // otherwise, the against player is dealt the normal pick.
-                    PlayerData memory againstPlayer = game.players[againstPlayerIdx];
-                    marketDeckMap = game.dealPickN(againstPlayer, againstPlayerIdx, marketDeckMap, _op);
+                    // PlayerData memory againstPlayer = game.players[againstPlayerIdx];
+                    storeMarketDeckMap(
+                        g1, game.dealPickN(game.players[againstPlayerIdx], againstPlayerIdx, marketDeckMap, _op)
+                    );
+                    toStorage(g1);
                 }
             } else {
                 if (dealPending) {
@@ -596,11 +568,11 @@ contract CardEngine is ICardEngine, CachePositionBase, AsyncHandler, EInputHandl
                     game.dealPendingGeneralMarket(againstPlayerIdx, _op - 8, playerStoreMap);
                 } else {
                     // otherwise, all players are dealt the normal general market pick.
-                    marketDeckMap = game.dealGeneralMarket(againstPlayerIdx, _op, marketDeckMap, playerStoreMap);
+                    storeMarketDeckMap(g1, game.dealGeneralMarket(againstPlayerIdx, _op, marketDeckMap, playerStoreMap));
+                    toStorage(g1);
                 }
             }
         }
-        return marketDeckMap;
     }
 
     function ensurePlayerTurn(address currentPlayer) internal view {

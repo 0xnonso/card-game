@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {
     FHE, euint128, euint256, euint64, externalEuint128, externalEuint256, externalEuint64
 } from "fhevm/lib/FHE.sol";
+import {SepoliaConfig} from "fhevm/config/ZamaConfig.sol";
 
 enum InputOneType {
     _EUINT64,
@@ -19,7 +20,7 @@ struct EInputData {
     externalEuint256 inputOne256;
 }
 
-contract EInputHandler {
+abstract contract EInputHandler is SepoliaConfig {
     function _handleInputData(EInputData calldata einputData, bytes calldata inputProof)
         internal
         returns (euint256[2] memory out)
@@ -37,5 +38,7 @@ contract EInputHandler {
             euint256 value = FHE.fromExternal(einputData.inputOne256, inputProof);
             out[1] = value;
         }
+        FHE.allowThis(out[0]);
+        FHE.allowThis(out[1]);
     }
 }

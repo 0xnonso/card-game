@@ -2,6 +2,11 @@
 cache/
 out/
 node_modules/
+artifacts/
+types/
+
+# hardat-exposed
+contracts-exposed
 
 # Ignores development broadcast logs
 !/broadcast
