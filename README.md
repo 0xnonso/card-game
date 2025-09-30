@@ -1,5 +1,3 @@
-![Scattered whot cards](banner.svg)
-
 To install dependencies:
 
 ```bash
