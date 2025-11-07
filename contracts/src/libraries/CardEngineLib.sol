@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {FHE, euint256, euint8} from "@fhevm/solidity/lib/FHE.sol";
 
-import {IRuleset} from "../interfaces/IRuleset.sol";
+import {IRuleset} from "../interfaces/IRuleSet.sol";
 import {Card, CardLib} from "../types/Card.sol";
 
 import {HookPermissions} from "../types/Hook.sol";
@@ -84,18 +84,21 @@ library CardEngineLib {
     uint16 constant MAX_UINT16 = type(uint16).max;
     uint8 constant MAX_PICK_N = 16;
 
-    function isPlayerActive(GameData storage $, address playerAddr, PlayerStoreMap playerStoreMap)
-        internal
-        view
-        returns (bool)
-    {
+    function isPlayerActive(
+        GameData storage $,
+        address playerAddr,
+        PlayerStoreMap playerStoreMap
+    ) internal view returns (bool) {
         uint256 playerIdx = $.playerIndex[playerAddr];
         if (playerIdx == 0 && playerStoreMap.isMapEmpty()) return false;
 
         return $.players[playerIdx].playerAddr == playerAddr;
     }
 
-    function getPlayerIndex(GameData storage $, address player) internal view returns (uint256) {
+    function getPlayerIndex(
+        GameData storage $,
+        address player
+    ) internal view returns (uint256) {
         return $.playerIndex[player];
     }
 
@@ -119,8 +122,8 @@ library CardEngineLib {
         for (uint256 i = 0; i < cardIndexes.length; i++) {
             uint256 marketDeckIdx = cardIndexes[i];
             uint256 mask = (uint256(1) << cardSize) - 1;
-            uint256 rawCard =
-                (marketDeck[marketDeckIdx / numCardsIn0] >> ((marketDeckIdx % numCardsIn0) * cardSize)) & mask;
+            uint256 rawCard = (marketDeck[marketDeckIdx / numCardsIn0] >>
+                ((marketDeckIdx % numCardsIn0) * cardSize)) & mask;
             Card card = CardLib.toCard(uint8(rawCard));
             (, uint256 cardValue) = $.ruleSet.getCardAttributes(card, cardSize);
             playerScore += uint16(cardValue);
@@ -133,26 +136,36 @@ library CardEngineLib {
         FHE.allowTransient(p.hand[1], grantee);
     }
 
-    function getCardToCommit(GameData storage $, DeckMap playerDeckMap, uint256 cardIdx) internal returns (euint8) {
+    function getCardToCommit(
+        GameData storage $,
+        DeckMap playerDeckMap,
+        uint256 cardIdx
+    ) internal returns (euint8) {
         DeckMap marketDeckMap = $.marketDeckMap;
         uint256 cardSize = marketDeckMap.getDeckCardSize();
         uint256 numCardsIn0 = 256 / cardSize;
         if (cardIdx > (numCardsIn0 - 1)) revert CardIndexOutOfBounds(cardIdx);
-        if (marketDeckMap.isNotEmpty(cardIdx) || playerDeckMap.isEmpty(cardIdx)) {
+        if (
+            marketDeckMap.isNotEmpty(cardIdx) || playerDeckMap.isEmpty(cardIdx)
+        ) {
             revert CardIndexIsEmpty(cardIdx);
         }
 
         euint256 marketDeck = $.marketDeck[cardIdx / numCardsIn0];
         uint256 mask = (uint256(1) << cardSize) - 1;
-        euint8 cardToCommit = marketDeck.shr(uint8((cardIdx % numCardsIn0) * cardSize)).and(mask).asEuint8();
+        euint8 cardToCommit = marketDeck
+            .shr(uint8((cardIdx % numCardsIn0) * cardSize))
+            .and(mask)
+            .asEuint8();
         FHE.allowThis(cardToCommit);
         return cardToCommit;
     }
 
-    function addPlayer(GameData storage $, address player, PlayerStoreMap playerStoreMap)
-        internal
-        returns (PlayerStoreMap)
-    {
+    function addPlayer(
+        GameData storage $,
+        address player,
+        PlayerStoreMap playerStoreMap
+    ) internal returns (PlayerStoreMap) {
         PlayerData memory pData;
         pData.playerAddr = player;
 
@@ -173,18 +186,35 @@ library CardEngineLib {
         return playerStoreMap.addPlayer(playerIndex);
     }
 
-    function initializeMarketDeckMap(uint256 marketDeckLen, uint256 deckCardBitSize) internal pure returns (DeckMap) {
+    function initializeMarketDeckMap(
+        uint256 marketDeckLen,
+        uint256 deckCardBitSize
+    ) internal pure returns (DeckMap) {
         uint64 cardSize = uint64(deckCardBitSize & 0x03);
-        return DeckMap.wrap(uint64(((uint256(1) << marketDeckLen) - 1) << 2) | cardSize);
+        return
+            DeckMap.wrap(
+                uint64(((uint256(1) << marketDeckLen) - 1) << 2) | cardSize
+            );
     }
 
-    function emptyDeckMapAtIndex(PlayerData memory p, uint256 cardIdx) internal pure returns (DeckMap) {
+    function emptyDeckMapAtIndex(
+        PlayerData memory p,
+        uint256 cardIdx
+    ) internal pure returns (DeckMap) {
         return p.deckMap.setToEmpty(cardIdx);
     }
 
-    function updatePlayerHand(GameData storage $, PlayerData memory p, uint256 playerIdx, uint256 cardIdx)
+    function updatePlayerHand(
+        GameData storage $,
+        PlayerData memory p,
+        uint256 playerIdx,
+        uint256 cardIdx
+    )
         internal
-        returns (DeckMap updatedPlayerDeckMap, euint256[2] memory updatedPlayerHand)
+        returns (
+            DeckMap updatedPlayerDeckMap,
+            euint256[2] memory updatedPlayerHand
+        )
     {
         updatedPlayerDeckMap = p.deckMap.setToEmpty(cardIdx);
         p.deckMap = updatedPlayerDeckMap;
@@ -236,7 +266,11 @@ library CardEngineLib {
         return marketDeckMap;
     }
 
-    function deal(GameData storage $, uint256 currentIdx, DeckMap marketDeckMap) internal returns (DeckMap) {
+    function deal(
+        GameData storage $,
+        uint256 currentIdx,
+        DeckMap marketDeckMap
+    ) internal returns (DeckMap) {
         PlayerData memory p = $.players[currentIdx];
         // DeckMap marketDeckMap = $.marketDeckMap;
         uint256 numCardsIn0 = 256 / marketDeckMap.getDeckCardSize();
@@ -256,10 +290,12 @@ library CardEngineLib {
         return marketDeckMap;
     }
 
-    function dealPickN(GameData storage $, uint256 currentIdx, DeckMap marketDeckMap, uint256 n)
-        internal
-        returns (DeckMap)
-    {
+    function dealPickN(
+        GameData storage $,
+        uint256 currentIdx,
+        DeckMap marketDeckMap,
+        uint256 n
+    ) internal returns (DeckMap) {
         PlayerData memory p = $.players[currentIdx];
         // DeckMap marketDeckMap = $.marketDeckMap;
         uint256 numCardsIn0 = 256 / marketDeckMap.getDeckCardSize();
@@ -271,7 +307,9 @@ library CardEngineLib {
         for (uint256 i = 0; i < n; i++) {
             if (marketDeckMap.isMapNotEmpty()) {
                 uint256 cardIdx;
-                (marketDeckMap, p.deckMap, cardIdx) = marketDeckMap.deal(p.deckMap);
+                (marketDeckMap, p.deckMap, cardIdx) = marketDeckMap.deal(
+                    p.deckMap
+                );
 
                 assembly ("memory-safe") {
                     let allow := iszero(div(cardIdx, numCardsIn0))
@@ -312,7 +350,11 @@ library CardEngineLib {
         return marketDeckMap;
     }
 
-    function dealPendingPickN(GameData storage $, uint256 playerIdx, uint256 pickN) internal {
+    function dealPendingPickN(
+        GameData storage $,
+        uint256 playerIdx,
+        uint256 pickN
+    ) internal {
         uint8 pendingPick = $.players[playerIdx].pendingAction;
         uint8 newPendingPick = pendingPick + uint8(pickN);
         if (newPendingPick > MAX_PICK_N) {
@@ -343,7 +385,8 @@ library CardEngineLib {
                 for (uint256 j = 0; j < pickN; j++) {
                     if (marketDeckMap.isMapNotEmpty()) {
                         uint256 cardIdx;
-                        (marketDeckMap, player.deckMap, cardIdx) = marketDeckMap.deal(player.deckMap);
+                        (marketDeckMap, player.deckMap, cardIdx) = marketDeckMap
+                            .deal(player.deckMap);
 
                         assembly ("memory-safe") {
                             let allow := iszero(div(cardIdx, numCardsIn0))
