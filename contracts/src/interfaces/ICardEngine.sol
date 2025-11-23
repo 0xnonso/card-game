@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {EInputData} from "../base/EInputHandler.sol";
-import {Action, GameStatus, PendingAction, PlayerData} from "../libraries/CardEngineLib.sol";
+import {Action, GameStatus, PlayerData} from "../libraries/CardEngineLib.sol";
 import {Card} from "../types/Card.sol";
 
 import {HookPermissions} from "../types/Hook.sol";
@@ -45,7 +45,6 @@ interface ICardEngine {
             uint8 playerTurnIdx,
             GameStatus status,
             uint40 lastMoveTimestamp,
-            uint8 maxPlayers,
             uint8 playersLeftToJoin,
             HookPermissions hookPermissions,
             PlayerStoreMap playerStoreMap,
