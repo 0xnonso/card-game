@@ -19,13 +19,7 @@ type RelayerInstance = {
 	) => EncryptedInputBuilder;
 };
 
-const instanceP: Promise<RelayerInstance> = (async () => {
-	return createInstance({
-		...SepoliaConfig,
-		...(process.env.RELAYER_URL ? { relayerUrl: process.env.RELAYER_URL } : {}),
-		...(process.env.RPC_URL ? { network: process.env.RPC_URL } : {}),
-	});
-})();
+const instanceP: Promise<RelayerInstance> = createInstance(SepoliaConfig);
 
 function splitIntoTwoUint256BE(src: Uint8Array): [Uint8Array, Uint8Array] {
 	const limb0 = new Uint8Array(32);
