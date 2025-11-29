@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Action as GameAction, PendingAction as GamePendingAction} from "../libraries/CardEngineLib.sol";
+import {Action as GameAction} from "../libraries/CardEngineLib.sol";
 import {Card} from "../types/Card.sol";
 import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
 import {euint256} from "@fhevm/solidity/lib/FHE.sol";
@@ -38,6 +38,7 @@ interface IRuleset {
         uint8 nextPlayerIndex;
         bool togglePSMDirection;
         bool currentPlayerExit;
+        bool invokeAfterResolveMove;
     }
 
     struct ResolveMoveParams {
@@ -47,7 +48,6 @@ interface IRuleset {
         Card callCard;
         uint256 cardSize;
         uint8 currentPlayerIndex;
-        // marketDeckMap
         DeckMap playerDeckMap;
         euint256[2] playerHand;
         PlayerStoreMap playerStoreMap;
@@ -55,7 +55,8 @@ interface IRuleset {
         bytes extraData;
     }
 
-    function resolveMove(ResolveMoveParams memory params) external returns (Effect memory);
+    function resolveMove(ResolveMoveParams calldata params) external returns (Effect memory);
+    function afterResolveMove(ResolveMoveParams calldata params) external;
     function computeStartIndex(PlayerStoreMap playerStoreMap) external view returns (uint8 startIndex);
     function computeNextTurnIndex(PlayerStoreMap playerStoreMap, uint256 currentPlayerIndex)
         external

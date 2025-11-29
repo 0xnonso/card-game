@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Card} from "../types/Card.sol";
 
 using WhotCardStandardLibx8 for Card;
+
 library WhotCardStandardLibx8 {
     uint8 private constant ZERO = 0;
     uint8 private constant CARD_NUMBER_ONE = 1;
@@ -43,50 +44,56 @@ library WhotCardStandardLibx8 {
     }
 
     function matchWhot(Card card1, Card card2) internal pure returns (bool) {
-        return card2.empty() ? false : card1.empty() || card1.matchShape(card2) || card1.matchNumber(card2);
+        return card2.isEmpty()
+            ? false
+            : card1.isEmpty() || card1.matchShape(card2) || card1.matchNumber(card2) || card2.isWishCard();
     }
 
     function matchShape(Card card1, CardShape cardShape) internal pure returns (bool) {
         return card1.shape() == cardShape;
     }
 
-    function generalMarket(Card card) internal pure returns (bool) {
+    function isGeneralMarket(Card card) internal pure returns (bool) {
         return card.matchNumber(CARD_NUMBER_FOURTEEN);
     }
 
-    function pickTwo(Card card) internal pure returns (bool) {
+    function isPickTwo(Card card) internal pure returns (bool) {
         return card.matchNumber(CARD_NUMBER_TWO);
     }
 
-    function pickThree(Card card) internal pure returns (bool) {
+    function isPickThree(Card card) internal pure returns (bool) {
         return card.matchNumber(CARD_NUMBER_FIVE);
     }
 
-    function pickFour(Card card) internal pure returns (bool) {
+    function isPickFour(Card card) internal pure returns (bool) {
         return card.matchNumber(CARD_NUMBER_TWO) && card.matchShape(CardShape.Star);
     }
 
-    function pick(Card card) internal pure returns (bool) {
-        return card.pickTwo() || card.pickThree() || card.pickFour();
+    function isPick(Card card) internal pure returns (bool) {
+        return card.isPickTwo() || card.isPickThree() || card.isPickFour();
     }
 
-    function suspension(Card card) internal pure returns (bool) {
+    function isSuspension(Card card) internal pure returns (bool) {
         return card.matchNumber(CARD_NUMBER_EIGHT);
     }
 
-    function iWish(Card card) internal pure returns (bool) {
+    function isWishCard(Card card) internal pure returns (bool) {
         return card.matchNumber(CARD_NUMBER_TWENTY);
     }
 
-    function holdOn(Card card) internal pure returns (bool) {
+    function isHoldOn(Card card) internal pure returns (bool) {
         return card.matchNumber(CARD_NUMBER_ONE);
     }
 
-    function empty(Card card) internal pure returns (bool) {
+    function isEmpty(Card card) internal pure returns (bool) {
         return card.matchNumber(ZERO);
     }
 
     function makeWhotWish(CardShape cardShape) internal pure returns (Card) {
         return Card.wrap((uint8(cardShape) << 5) | CARD_NUMBER_TWENTY);
+    }
+
+    function cardSize() internal pure returns (uint256) {
+        return 8;
     }
 }

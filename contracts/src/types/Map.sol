@@ -233,31 +233,39 @@ library PlayerStoreMapLib {
         if (map == 0) revert MapIsEmpty(playerStoreMap);
 
         bool leftToRight = playerStoreMap.direction() != 0;
-        unchecked {
-            // Skip the current seat; we only want the next occupied seat.
-            map = map & ~(uint16(1) << startIdx);
-            if (map == 0) revert MapIsEmpty(playerStoreMap);
+        uint16 bit;
 
-            // Align bit 0 to the immediate neighbor in the chosen direction:
-            //  - forward: startIdx + 1
-            //  - reverse: startIdx - 1  ==> (startIdx + 15) mod 16
-            uint8 rot = leftToRight ? uint8((startIdx + 1) & 0x0f) : uint8((startIdx + 15) & 0x0f);
-            uint16 rotated = uint16(((uint32(map) >> rot) | (uint32(map) << (16 - rot))) & 0xffff);
+        if (!leftToRight) {
+            uint16 forwardMask = uint16(~((uint32(1) << (startIdx + 1)) - 1)) & 0xFFFF;
+            uint16 forwardBits = map & forwardMask;
+            uint16 wrapBits = map & ~forwardMask;
+            uint16 candidates = forwardBits != 0 ? forwardBits : wrapBits;
+            bit = candidates & (~candidates + 1);
+        } else {
+            uint16 backwardMask = uint16((uint32(1) << startIdx) - 1);
+            uint16 backwardBits = map & backwardMask; // bits < s
+            uint16 candidates = backwardBits != 0 ? backwardBits : map;
+            uint16 x = candidates;
+            x |= x >> 1;
+            x |= x >> 2;
+            x |= x >> 4;
+            x |= x >> 8;
+            bit = x & ~uint16(x >> 1);
+        }
 
-            // Isolate LS1B of the rotated map.
-            uint16 lsb = rotated & (~rotated + 1);
+        // De Bruijn: bit → index 0..15
+        assembly {
+            // key = ((bit * 0x077CB531) >> 27) & 31
+            let key := and(shr(27, mul(bit, 0x077CB531)), 31)
 
-            // Decode LS1B index using a 16-entry nibble table packed into a single word.
-            uint8 lsbIdx;
-            assembly {
-                let key := shr(12, mul(lsb, 0x09af)) // De Bruijn multiply, keep top 4 bits
-                lsbIdx := byte(key, 0x000102050309060b0f04080a0e070d0c00000000000000000000000000000000)
-            }
+            // LUT (32 bytes) for LS1B index:
+            // [0,1,28,2,29,14,24,3,
+            //  30,22,20,15,25,17,4,8,
+            //  31,27,13,23,21,19,16,7,
+            //  26,12,18,6,11,5,10,9]
+            let lut := 0x00011c021d0e18031e16140f191104081f1b0d17151310071a0c12060b050a09
 
-            // Map back to original index space.
-            nextIdx = leftToRight
-                ? uint8((uint16(startIdx) + 1 + lsbIdx) & 0x0f)
-                : uint8((uint16(startIdx) + 15 - lsbIdx) & 0x0f);
+            nextIdx := byte(key, lut)
         }
     }
 }

@@ -10,5 +10,3 @@ library CardLib {
         return Card.wrap(rawCard);
     }
 }
-
-

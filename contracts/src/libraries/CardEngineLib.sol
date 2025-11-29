@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
-import {FHE, euint256, euint8} from "@fhevm/solidity/lib/FHE.sol";
 import {IRuleset} from "../interfaces/IRuleset.sol";
 import {Card, CardLib} from "../types/Card.sol";
 import {HookPermissions} from "../types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
+import {FHE, euint256, euint8} from "@fhevm/solidity/lib/FHE.sol";
 
 enum Action {
     Play,
@@ -41,12 +41,13 @@ struct GameData {
     uint8 playerTurnIdx;
     GameStatus status;
     uint40 lastMoveTimestamp;
-    uint8 packedJoinCapacity; // maxPlayers | playersLeftToJoin;
+    uint8 numProposedPlayers;
     HookPermissions hookPermissions;
     PlayerStoreMap playerStoreMap;
     IRuleset ruleset;
     DeckMap marketDeckMap;
     uint8 initialHandSize;
+    uint8 playersLeftToJoin;
     euint256[2] marketDeck;
     PlayerData[] players;
     mapping(address => bool) isProposedPlayer;

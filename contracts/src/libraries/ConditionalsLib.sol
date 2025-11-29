@@ -2,16 +2,10 @@
 pragma solidity ^0.8.24;
 
 import {IRuleset} from "../interfaces/IRuleset.sol";
-import {Action, GameStatus, PendingAction} from "./CardEngineLib.sol";
+import {Action, GameStatus} from "./CardEngineLib.sol";
 
 library ConditionalsLib {
     function eqs(Action a, Action b) internal pure returns (bool c) {
-        assembly {
-            c := eq(a, b)
-        }
-    }
-
-    function eqs(PendingAction a, PendingAction b) internal pure returns (bool c) {
         assembly {
             c := eq(a, b)
         }
@@ -35,12 +29,6 @@ library ConditionalsLib {
         }
     }
 
-    function eqsOr(PendingAction a, PendingAction b, PendingAction c) internal pure returns (bool d) {
-        assembly {
-            d := or(eq(a, b), eq(a, c))
-        }
-    }
-
     function eqsOr(GameStatus a, GameStatus b, GameStatus c) internal pure returns (bool d) {
         assembly {
             d := or(eq(a, b), eq(a, c))
@@ -48,12 +36,6 @@ library ConditionalsLib {
     }
 
     function notEqs(Action a, Action b) internal pure returns (bool c) {
-        assembly {
-            c := iszero(eq(a, b))
-        }
-    }
-
-    function notEqs(PendingAction a, PendingAction b) internal pure returns (bool c) {
         assembly {
             c := iszero(eq(a, b))
         }

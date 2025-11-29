@@ -27,6 +27,8 @@ struct EInputData {
 }
 
 abstract contract EInputHandler is SepoliaConfig {
+    // this function takes in two encrypted inputs and their proof.
+    // the first input is always a euint256, the second input can be a euint64, euint128 or euint256 based on inputOneType.
     function _handleInputData(EInputData calldata einputData, bytes calldata inputProof)
         internal
         returns (euint256[2] memory out)

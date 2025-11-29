@@ -19,7 +19,6 @@ abstract contract AsyncHandler {
 
     mapping(uint256 gameId => uint256) private gameIdToLatestCommittedMoveRequestId;
     mapping(uint256 gameId => uint256) private gameIdToLatestCommittedMarketDeckRequestId;
-    // mapping(uint256 gameId => mapping(uint256 req => bool)) private _isLatestRequest;
     mapping(uint256 gameId => bool) private _hasCommittedAction;
 
     struct CommittedMoveData {
@@ -36,7 +35,7 @@ abstract contract AsyncHandler {
         euint256[2] marketDeck;
     }
 
-    function _initializeGameCallback(uint256 gameId) internal {
+    function _initializeEngineCallback(uint256 gameId) internal {
         gameIdToLatestCommittedMoveRequestId[gameId] = DEFAULT_REQUEST_ID;
         gameIdToLatestCommittedMarketDeckRequestId[gameId] = DEFAULT_REQUEST_ID;
     }
@@ -90,12 +89,12 @@ abstract contract AsyncHandler {
         if (isCommittedMoveAction) {
             require(
                 gameIdToLatestCommittedMoveRequestId[gameId] == reqId && reqId != DEFAULT_REQUEST_ID,
-                "Not latest committed move request"
+                "AsyncHandler: not latest committed move request"
             );
         } else {
             require(
                 gameIdToLatestCommittedMarketDeckRequestId[gameId] == reqId && reqId != DEFAULT_REQUEST_ID,
-                "Not latest committed market deck request"
+                "AsyncHandler: not latest committed market deck request"
             );
         }
         FHE.checkSignatures(reqId, clearTexts, decryptionProof);
@@ -113,9 +112,9 @@ abstract contract AsyncHandler {
         uint256 latestReqId = gameIdToLatestCommittedMoveRequestId[gameId];
         CommittedMoveData memory committedMove = requestToCommittedMove[latestReqId];
         if (latestReqId != DEFAULT_REQUEST_ID) {
-            require(committedMove.fulfilled, "Latest committed move not fulfilled");
+            require(committedMove.fulfilled, "AsyncHandler: latest committed move not fulfilled");
         } else {
-            revert("No committed move for game");
+            revert("AsyncHandler: no committed move for game");
         }
         return requestToCommittedMove[latestReqId];
     }

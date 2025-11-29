@@ -256,7 +256,6 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         bool canEndGame = IManagerHook(gameCreator).onExecuteMove(
             hookPermissions, gameId, player.playerAddr, moveParams.card, moveParams.gameAction
         );
-
         // finally, check if game can end.
         finish(gameId, game, canEndGame);
     }
@@ -449,50 +448,48 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         IRuleset.Action[] memory rActions = effect.actions;
         DeckMap marketDeckMap = game.marketDeckMap;
 
-        {
-            for (uint256 i = 0; i < rActions.length; i++) {
-                // apply effect against player if any.
-                if (rActions[i].op.notEqs(IRuleset.EngineOp.None)) {
-                    uint8 op = uint8(rActions[i].op);
-                    bool dealPending = op > 8;
-                    uint8 againstPlayerIdx = rActions[i].againstPlayerIndex;
+        for (uint256 i = 0; i < rActions.length; i++) {
+            // apply effect against player if any.
+            if (rActions[i].op.notEqs(IRuleset.EngineOp.None)) {
+                uint8 op = uint8(rActions[i].op);
+                bool dealPending = op > 8;
+                uint8 againstPlayerIdx = rActions[i].againstPlayerIndex;
 
-                    // `PendingPick` vs `Pick`: `PendingPick` are `Pick` actions that are not resolved immediately, but must be resolved
-                    // by the affected player on their turn before they can perform any other action.
+                // `PendingPick` vs `Pick`: `PendingPick` are `Pick` actions that are not resolved immediately, but must be resolved
+                // by the affected player on their turn before they can perform any other action.
 
-                    // if `againstPlayerIdx` is not `ALL_OTHER_PLAYERS`, then apply effect against only `againstPlayerIdx`.
-                    // otherwise, apply effect against all players.
-                    if (againstPlayerIdx != ALL_OTHER_PLAYERS) {
-                        if (moveParams.playerStoreMap.isEmpty(againstPlayerIdx)) {
-                            revert InvalidPlayerIndex();
-                        }
-                        if (dealPending) {
-                            op = op - 8;
-                            // if `dealPending` is true, then the against player is dealt the pending pick.
-                            game.dealPendingPickN(againstPlayerIdx, op);
-                            emit PlayerDealtPending(gameId, againstPlayerIdx, op);
-                        } else {
-                            // otherwise, the against player is dealt the normal pick.
-                            if (op != 1) {
-                                marketDeckMap = game.dealPickN(againstPlayerIdx, marketDeckMap, op);
-                            } else {
-                                marketDeckMap = game.deal(againstPlayerIdx, marketDeckMap);
-                            }
-                            emit PlayerDealt(gameId, againstPlayerIdx, op);
-                        }
+                // if `againstPlayerIdx` is not `ALL_OTHER_PLAYERS`, then apply effect against only `againstPlayerIdx`.
+                // otherwise, apply effect against all players.
+                if (againstPlayerIdx != ALL_OTHER_PLAYERS) {
+                    if (moveParams.playerStoreMap.isEmpty(againstPlayerIdx)) {
+                        revert InvalidPlayerIndex();
+                    }
+                    if (dealPending) {
+                        op = op - 8;
+                        // if `dealPending` is true, then the against player is dealt the pending pick.
+                        game.dealPendingPickN(againstPlayerIdx, op);
+                        emit PlayerDealtPending(gameId, againstPlayerIdx, op);
                     } else {
-                        if (dealPending) {
-                            op = op - 8;
-                            // if `dealPending` is true, then all players are dealt the pending general market pick.
-                            game.dealPendingGeneralMarket(moveParams.currentPlayerIndex, op, moveParams.playerStoreMap);
-                            emit PlayersDealtGeneralPending(gameId, op);
+                        // otherwise, the against player is dealt the normal pick.
+                        if (op != 1) {
+                            marketDeckMap = game.dealPickN(againstPlayerIdx, marketDeckMap, op);
                         } else {
-                            // otherwise, all players are dealt the normal general market pick.
-                            marketDeckMap = game.dealGeneralMarket(
-                                moveParams.currentPlayerIndex, op, marketDeckMap, moveParams.playerStoreMap
-                            );
-                            emit PlayersDealtGeneral(gameId, op);
+                            marketDeckMap = game.deal(againstPlayerIdx, marketDeckMap);
                         }
+                        emit PlayerDealt(gameId, againstPlayerIdx, op);
+                    }
+                } else {
+                    if (dealPending) {
+                        op = op - 8;
+                        // if `dealPending` is true, then all players are dealt the pending general market pick.
+                        game.dealPendingGeneralMarket(moveParams.currentPlayerIndex, op, moveParams.playerStoreMap);
+                        emit PlayersDealtGeneralPending(gameId, op);
+                    } else {
+                        // otherwise, all players are dealt the normal general market pick.
+                        marketDeckMap = game.dealGeneralMarket(
+                            moveParams.currentPlayerIndex, op, marketDeckMap, moveParams.playerStoreMap
+                        );
+                        emit PlayersDealtGeneral(gameId, op);
                     }
                 }
                 game.marketDeckMap = marketDeckMap;
@@ -507,9 +504,9 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
             revert InvalidPlayerIndex();
         }
 
-        game.playerTurnIdx = (nextPlayer);
-        game.callCard = (effect.callCard);
-        game.lastMoveTimestamp = (uint40(block.timestamp));
+        game.playerTurnIdx = nextPlayer;
+        game.callCard = effect.callCard;
+        game.lastMoveTimestamp = uint40(block.timestamp);
     }
 
     /// VALIDATION FUNCTIONS
