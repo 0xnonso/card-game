@@ -1,6 +1,5 @@
 import "@fhevm/hardhat-plugin";
 import { expect } from "chai";
-import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { ethers, fhevm } from "hardhat";
 import type { CardEngine } from "../types/src/CardEngine";
 import type { WhotRuleset } from "../types/src/rules/WhotRuleset";
@@ -109,13 +108,13 @@ async function deployEngineFixture(): Promise<EngineCtx> {
 describe("Engine", () => {
   describe("Create Game", () => {
     it("Should emit game id", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
       expect(gameId).to.equal(1n);
     });
 
     it("Should persist game data retrievable via getGameData", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { params } = await createGameWithDefaults(ctx);
       const gameId = 1;
 
@@ -153,7 +152,7 @@ describe("Engine", () => {
 
   describe("Join Game", () => {
     it("allows proposed players to join and decrements players left to join", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
 
       await expect(ctx.cardEngine.connect(ctx.player0).joinGame(gameId))
@@ -168,7 +167,7 @@ describe("Engine", () => {
     });
 
     it("allows the game creator to join the game they created", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx, {
         proposedPlayers: [],
         maxPlayers: 2,
@@ -186,7 +185,7 @@ describe("Engine", () => {
     });
 
     it("rejects addresses that are not proposed players", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
 
       const stranger = ctx.accounts[0];
@@ -196,7 +195,7 @@ describe("Engine", () => {
     });
 
     it("allows every proposed player to join and tracks their indices", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
 
       await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
@@ -217,7 +216,7 @@ describe("Engine", () => {
     });
 
     it("allows non-proposed players to join open games until capacity is reached", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx, {
         proposedPlayers: [],
         maxPlayers: 3,
@@ -235,7 +234,7 @@ describe("Engine", () => {
     });
 
     it("rejects join attempts once the game has started", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
 
       await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
@@ -250,7 +249,7 @@ describe("Engine", () => {
     });
 
     it("caps open games at maxPlayers when proposedPlayers is empty", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx, {
         proposedPlayers: [],
         maxPlayers: 2,
@@ -270,7 +269,7 @@ describe("Engine", () => {
 
   describe("Start Game", () => {
     it("allows the game creator to start once all proposed players join", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
       await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
       await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
@@ -288,7 +287,7 @@ describe("Engine", () => {
     });
 
     it("prevents non-creators from starting before all players join", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
       await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
       await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
@@ -298,7 +297,7 @@ describe("Engine", () => {
     });
 
     it("allows the creator to start with at least two players even if spots remain", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx, {
         proposedPlayers: [],
         maxPlayers: 4,
@@ -318,7 +317,7 @@ describe("Engine", () => {
     });
 
     it("requires at least two players to start even for the creator", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx, {
         proposedPlayers: [],
         maxPlayers: 3,
@@ -330,7 +329,7 @@ describe("Engine", () => {
     });
 
     it("allows non-creators to start once every seat is filled", async () => {
-      const ctx = await loadFixture(deployEngineFixture);
+      const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx);
       await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
       await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
@@ -348,20 +347,20 @@ describe("Engine", () => {
 
     describe("Execute Move", () => {
       it("reverts when executing a Play action without a committed move", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
         const { currentIndex, signer } = await currentPlayerCtx(ctx, gameId);
 
         await expect(
           ctx.cardEngine.connect(signer).executeMove(Number(gameId), ACTION.Play, "0x"),
-        ).to.be.revertedWith("No committed move for game");
+        ).to.be.revertedWith("AsyncHandler: no committed move for game");
 
         const postGame = await ctx.cardEngine.getGameData(gameId);
         expect(Number(postGame.playerTurnIdx)).to.equal(currentIndex);
       });
 
       it("requires the relayer to resolve a committed move before execution", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
         const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
         const targetCardIdx = cardIndexes[0];
@@ -372,14 +371,14 @@ describe("Engine", () => {
 
         await expect(
           ctx.cardEngine.connect(signer).executeMove(Number(gameId), ACTION.Play, "0x"),
-        ).to.be.revertedWith("Latest committed move not fulfilled");
+        ).to.be.revertedWith("AsyncHandler: latest committed move not fulfilled");
 
         const postGame = await ctx.cardEngine.getGameData(gameId);
         expect(Number(postGame.playerTurnIdx)).to.equal(currentIndex);
       });
 
       it("prevents non-current players from executing Play actions", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
         const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
         const targetCardIdx = cardIndexes[0];
@@ -404,7 +403,7 @@ describe("Engine", () => {
       });
 
       it("executes a committed Play action end-to-end", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
         const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
         const targetCardIdx = cardIndexes[0];
@@ -435,7 +434,7 @@ describe("Engine", () => {
 
     describe("Boot Out / Forfeit", () => {
       it("allows the current player to forfeit after the game has started", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
 
         await expect(ctx.cardEngine.connect(ctx.player0).forfeit(gameId))
@@ -447,7 +446,7 @@ describe("Engine", () => {
       });
 
       it("prevents forfeiting before the game has started", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const { gameId } = await createGameWithDefaults(ctx);
         await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
         await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
@@ -457,7 +456,7 @@ describe("Engine", () => {
       });
 
       it("prevents booting out an idle player when the manager denies", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const { gameId } = await setupManagedGame(ctx, { allowBootOut: false });
 
         await ethers.provider.send("evm_increaseTime", [300]);
@@ -469,7 +468,7 @@ describe("Engine", () => {
       });
 
       it("prevents a booted player from executing moves", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const { gameId } = await setupManagedGame(ctx, { allowBootOut: true });
 
         await ethers.provider.send("evm_increaseTime", [300]);
@@ -486,7 +485,7 @@ describe("Engine", () => {
       });
 
       it("prevents booting out players with an unfulfilled commitment", async () => {
-        const ctx = await loadFixture(deployEngineFixture);
+        const ctx = await deployEngineFixture();
         const { gameId, manager } = await setupManagedGame(ctx, { allowBootOut: true });
 
         const { signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
@@ -495,7 +494,6 @@ describe("Engine", () => {
           .connect(signer)
           .commitMove(Number(gameId), ACTION.Play, targetCardIdx);
         await commitTx.wait();
-        await fhevm.awaitDecryptionOracle();
         await (manager as MockManager).connect(ctx.alice).setBootOutPermission(true);
 
         await expect(ctx.cardEngine.connect(ctx.alice).bootOut(gameId, 0))
