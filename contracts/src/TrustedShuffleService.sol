@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {Ownable} from "solady/src/auth/Ownable.sol";
 import {SSTORE2} from "solady/src/utils/SSTORE2.sol";
 
-contract TrustedShuffleService is Ownable {
+contract TrustedShuffleServiceV0 is Ownable {
     uint256 constant HANDLES_PER_PROOF = 8;
 
     address immutable TSS_AGENT;
@@ -52,20 +52,18 @@ contract TrustedShuffleService is Ownable {
         _;
     }
 
-    function storeInputProofs(bytes calldata proofs, uint256 numKmsSigners) external onlyTssAgent {
-        uint256 proofSize = 355 + (65 * numKmsSigners);
-        uint256 totalProofs = proofs.length / proofSize;
-        if (totalProofs == 0 && proofs.length % proofSize != 0) {
+    function storeInputProofs(bytes calldata proofs, uint256 numProofs, uint256 proofSize) external onlyTssAgent {
+        if (proofs.length == 0 || (proofs.length != (numProofs * proofSize))) {
             revert InvalidProofPayload();
         }
         ProofCursor storage cursor = proofCursor;
         uint256 ptrIndex = cursor.totalNumPtrs;
         address ptr = SSTORE2.writeDeterministic(proofs, deriveSalt(ptrIndex));
         pointerMeta[ptrIndex] =
-            PointerMeta({totalHandles: uint32(HANDLES_PER_PROOF * totalProofs), proofSize: uint16(proofSize)});
+            PointerMeta({totalHandles: uint32(HANDLES_PER_PROOF * numProofs), proofSize: uint16(proofSize)});
         cursor.totalNumPtrs++;
 
-        emit InputProofStored(ptr, totalProofs, proofSize);
+        emit InputProofStored(ptr, numProofs, proofSize);
     }
 
     function useInputProof() external onlyImporter returns (bytes memory handlesWithProof) {
@@ -75,28 +73,27 @@ contract TrustedShuffleService is Ownable {
             cursor.ptrIndex++;
             cursor.usedHandles = 0;
         }
-        if (cursor.ptrIndex >= cursor.totalNumPtrs) revert InputProofsDepleted();
-
+        if (cursor.ptrIndex >= cursor.totalNumPtrs) {
+            revert InputProofsDepleted();
+        }
         address ptr = SSTORE2.predictDeterministicAddress(deriveSalt(cursor.ptrIndex), address(this));
-
         uint256 proofIndex = cursor.usedHandles / HANDLES_PER_PROOF;
         uint16 proofSize = ptrMeta.proofSize;
         uint256 start = proofIndex * proofSize;
-        // inputProof layout:
+        // input proof layout:
         // - len(list_handles)    = (1 byte)
         // - numSignersKMS        = (1 byte)
-        // - hashCT               = (32 bytes)
         // - list_handles         = (NUM_HANDLES * 32 bytes)
-        // - signatureCoprocessor = (65 bytes)
-        // - signatureKMSSigners  = (65 * numSignersKMS bytes)
-        //   Total = 1 + 1 + 32 + NUM_HANDLES * 32 + 65 + 65 * numSignersKMS bytes.
+        // - signatures           = (numSignersKMS * 65 bytes)  // ECDSA signatures over handles + extraData
+        // - extraData            = (variable)
+        //   Total = 2 + NUM_HANDLES * 32 + (65 * numSignersKMS) + extraData.length
         bytes memory proof = SSTORE2.read(ptr, start, start + proofSize);
 
         if (proof.length != proofSize) revert InvalidInputProofBlob();
 
         handlesWithProof = new bytes(proofSize + 0x40);
         uint256 handleIndex = cursor.usedHandles % HANDLES_PER_PROOF;
-        uint256 handleOffset = 0x22 + (handleIndex * 0x20);
+        uint256 handleOffset = 0x02 + (handleIndex * 0x20);
         assembly {
             let dest := add(handlesWithProof, 0x20)
             let dataPtr := add(proof, 0x20)
@@ -112,10 +109,12 @@ contract TrustedShuffleService is Ownable {
 
     function deriveSalt(uint256 index) internal view returns (bytes32 salt) {
         assembly {
+            let fmp := mload(0x40)
             mstore(0x00, INPUT_PROOF_ID_HASH)
             mstore(0x20, address())
             mstore(0x40, index)
             salt := keccak256(0x00, 0x60)
+            mstore(0x40, fmp)
         }
     }
 

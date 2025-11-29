@@ -2,37 +2,16 @@
 pragma solidity ^0.8.24;
 
 import {FHE, euint256, euint8} from "@fhevm/solidity/lib/FHE.sol";
-
 import {IRuleset} from "../interfaces/IRuleset.sol";
 import {Card, CardLib} from "../types/Card.sol";
-
 import {HookPermissions} from "../types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
-
-// import "hardhat/console.sol";
 
 enum Action {
     Play,
     Defend,
     Draw,
-    Pick,
     Neutral
-}
-
-enum PendingAction {
-    None,
-    PickOne,
-    PickTwo,
-    PickThree,
-    PickFour,
-    PickFive,
-    PickSix,
-    PickSeven,
-    PickEight,
-    PickNine,
-    PickTen,
-    PickEleven,
-    PickTwelve
 }
 
 enum GameStatus {
@@ -63,7 +42,6 @@ struct GameData {
     GameStatus status;
     uint40 lastMoveTimestamp;
     uint8 packedJoinCapacity; // maxPlayers | playersLeftToJoin;
-    uint8 numProposedPlayers;
     HookPermissions hookPermissions;
     PlayerStoreMap playerStoreMap;
     IRuleset ruleset;
@@ -107,15 +85,16 @@ library CardEngineLib {
         $.players[index].score = MAX_UINT16;
     }
 
-    function calculateAndSetPlayerScore(GameData storage $, uint256 playerIndex, uint256[2] memory marketDeck)
-        internal
-        returns (uint16 playerScore)
-    {
-        PlayerData memory player = $.players[playerIndex];
-        DeckMap playerDeckMap = player.deckMap;
+    function calculateAndSetPlayerScore(
+        GameData storage $,
+        uint256 playerIndex,
+        DeckMap marketDeckMap,
+        DeckMap playerDeckMap,
+        uint256[2] memory marketDeck,
+        IRuleset ruleset
+    ) internal returns (uint16 playerScore) {
         uint256[] memory cardIndexes = playerDeckMap.getNonEmptyIdxs();
 
-        DeckMap marketDeckMap = $.marketDeckMap;
         uint256 cardSize = marketDeckMap.getDeckCardSize();
         uint256 numCardsIn0 = 256 / cardSize;
         for (uint256 i = 0; i < cardIndexes.length; i++) {
@@ -124,23 +103,22 @@ library CardEngineLib {
             uint256 rawCard =
                 (marketDeck[marketDeckIdx / numCardsIn0] >> ((marketDeckIdx % numCardsIn0) * cardSize)) & mask;
             Card card = CardLib.toCard(uint8(rawCard));
-            (, uint256 cardValue) = $.ruleset.getCardAttributes(card, cardSize);
+            (, uint256 cardValue) = ruleset.getCardAttributes(card, cardSize);
             playerScore += uint16(cardValue);
         }
         $.players[playerIndex].score = playerScore;
     }
 
-    function grantAccessToHand(PlayerData memory p, address grantee) internal {
-        FHE.allowTransient(p.hand[0], grantee);
-        FHE.allowTransient(p.hand[1], grantee);
+    function grantAccessToHand(euint256[2] memory hand, address grantee) internal {
+        FHE.allowTransient(hand[0], grantee);
+        FHE.allowTransient(hand[1], grantee);
     }
 
     function getCardToCommit(GameData storage $, DeckMap playerDeckMap, uint256 cardIdx) internal returns (euint8) {
         DeckMap marketDeckMap = $.marketDeckMap;
         uint256 cardSize = marketDeckMap.getDeckCardSize();
         uint256 numCardsIn0 = 256 / cardSize;
-        // uint256 maxCardIdx = numCardsIn0 * $.marketDeck.length;
-        // if (cardIdx >= maxCardIdx) revert CardIndexOutOfBounds(cardIdx);
+
         if (marketDeckMap.isNotEmpty(cardIdx) || playerDeckMap.isEmpty(cardIdx)) {
             revert CardIndexIsEmpty(cardIdx);
         }
@@ -205,22 +183,21 @@ library CardEngineLib {
 
     function dealInitialHand(
         GameData storage $,
-        PlayerData memory p,
         uint256 index,
         DeckMap marketDeckMap,
         uint256 numPlayers,
         uint256 handSize
     ) internal returns (DeckMap) {
+        PlayerData memory p = $.players[index];
         uint256[] memory idxs = new uint256[](handSize);
 
         for (uint256 i = 0; i < idxs.length; i++) {
             idxs[i] = index + (i * numPlayers);
         }
 
-        // DeckMap marketDeckMap = $.marketDeckMap;
         DeckMap playerDeckMap;
         (marketDeckMap, playerDeckMap) = marketDeckMap.deal(p.deckMap, idxs);
-        $.players[index].deckMap = playerDeckMap;
+        p.deckMap = playerDeckMap;
 
         euint256[2] memory marketDeck = $.marketDeck;
 
@@ -228,20 +205,20 @@ library CardEngineLib {
         p.hand[0] = marketDeck[0].and(mask[0]);
         p.hand[1] = marketDeck[1].and(mask[1]);
 
-        $.players[index].hand[0] = p.hand[0];
         FHE.allow(p.hand[0], p.playerAddr);
         FHE.allowThis(p.hand[0]);
 
-        $.players[index].hand[1] = p.hand[1];
         FHE.allow(p.hand[1], p.playerAddr);
         FHE.allowThis(p.hand[1]);
+
+        p.score = MAX_UINT16;
+        $.players[index] = p;
 
         return marketDeckMap;
     }
 
     function deal(GameData storage $, uint256 currentIdx, DeckMap marketDeckMap) internal returns (DeckMap) {
         PlayerData memory p = $.players[currentIdx];
-        // DeckMap marketDeckMap = $.marketDeckMap;
         uint256 numCardsIn0 = 256 / marketDeckMap.getDeckCardSize();
 
         if (marketDeckMap.isMapNotEmpty()) {
@@ -264,7 +241,6 @@ library CardEngineLib {
         returns (DeckMap)
     {
         PlayerData memory p = $.players[currentIdx];
-        // DeckMap marketDeckMap = $.marketDeckMap;
         uint256 numCardsIn0 = 256 / marketDeckMap.getDeckCardSize();
         euint256[2] memory marketDeck = $.marketDeck;
 
@@ -331,7 +307,6 @@ library CardEngineLib {
         DeckMap marketDeckMap,
         PlayerStoreMap playerStoreMap
     ) internal returns (DeckMap) {
-        // DeckMap marketDeckMap = $.marketDeckMap;
         uint256 numCardsIn0 = 256 / marketDeckMap.getDeckCardSize();
         euint256[2] memory marketDeck = $.marketDeck;
 
@@ -385,7 +360,6 @@ library CardEngineLib {
                 $.players[i] = player;
             }
         }
-        // $.marketDeckMap = marketDeckMap;
         return marketDeckMap;
     }
 
@@ -411,19 +385,14 @@ library CardEngineLib {
         DeckMap playerDeckMap,
         uint8 pendingAction
     ) internal returns (DeckMap, DeckMap) {
-        // uint8 pendingAction = $.players[currentIdx].pendingAction;
-        while (pendingAction > 0) {
-            if (marketDeckMap.isMapNotEmpty()) {
-                uint256 cardIdx;
-                (marketDeckMap, playerDeckMap, cardIdx) = marketDeckMap.deal(playerDeckMap);
-            }
-            pendingAction--;
-        }
         if (pendingAction > 0) {
-            PlayerData storage p = $.players[currentIdx];
-            p.pendingAction = 0;
-            p.deckMap = playerDeckMap;
-            $.marketDeckMap = marketDeckMap;
+            for (uint8 i = 0; i < pendingAction; i++) {
+                if (marketDeckMap.isMapNotEmpty()) {
+                    (marketDeckMap, playerDeckMap,) = marketDeckMap.deal(playerDeckMap);
+                }
+            }
+            $.players[currentIdx].pendingAction = 0;
+            $.players[currentIdx].deckMap = playerDeckMap;
         }
         return (marketDeckMap, playerDeckMap);
     }
