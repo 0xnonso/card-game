@@ -23,8 +23,6 @@ library Hook {
         return (HookPermissions.unwrap(permissions) & flag) != 0;
     }
 
-    function callHook() internal returns (bytes memory retData) {}
-
     function onStartGame(IManagerHook hook, HookPermissions permissions, uint256 gameId) internal returns (bool) {
         if (permissions.hasPermission(ON_START_GAME_FLAG)) {
             return hook.onStartGame(gameId);

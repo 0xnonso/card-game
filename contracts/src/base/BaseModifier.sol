@@ -6,9 +6,11 @@ import {ICardEngine} from "../interfaces/ICardEngine.sol";
 contract BaseModifier {
     ICardEngine public immutable cardEngine;
 
+    error BaseModifier_OnlyCardEngine();
+
     modifier onlyCardEngine() {
         if (msg.sender != address(cardEngine)) {
-            revert("BaseModifier: only card engine");
+            revert BaseModifier_OnlyCardEngine();
         }
         _;
     }

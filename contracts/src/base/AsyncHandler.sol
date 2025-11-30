@@ -21,6 +21,11 @@ abstract contract AsyncHandler {
     mapping(uint256 gameId => uint256) private gameIdToLatestCommittedMarketDeckRequestId;
     mapping(uint256 gameId => bool) private _hasCommittedAction;
 
+    error AsyncHandler_NotLatestCommittedMoveRequest();
+    error AsyncHandler_NotLatestCommittedMarketDeckRequest();
+    error AsyncHandler_LatestCommittedMoveNotFulfilled();
+    error AsyncHandler_NoCommittedMoveForGame();
+
     struct CommittedMoveData {
         uint256 gameId;
         Action action;
@@ -89,12 +94,12 @@ abstract contract AsyncHandler {
         if (isCommittedMoveAction) {
             require(
                 gameIdToLatestCommittedMoveRequestId[gameId] == reqId && reqId != DEFAULT_REQUEST_ID,
-                "AsyncHandler: not latest committed move request"
+                AsyncHandler_NotLatestCommittedMoveRequest()
             );
         } else {
             require(
                 gameIdToLatestCommittedMarketDeckRequestId[gameId] == reqId && reqId != DEFAULT_REQUEST_ID,
-                "AsyncHandler: not latest committed market deck request"
+                AsyncHandler_NotLatestCommittedMarketDeckRequest()
             );
         }
         FHE.checkSignatures(reqId, clearTexts, decryptionProof);
@@ -112,9 +117,9 @@ abstract contract AsyncHandler {
         uint256 latestReqId = gameIdToLatestCommittedMoveRequestId[gameId];
         CommittedMoveData memory committedMove = requestToCommittedMove[latestReqId];
         if (latestReqId != DEFAULT_REQUEST_ID) {
-            require(committedMove.fulfilled, "AsyncHandler: latest committed move not fulfilled");
+            require(committedMove.fulfilled, AsyncHandler_LatestCommittedMoveNotFulfilled());
         } else {
-            revert("AsyncHandler: no committed move for game");
+            revert AsyncHandler_NoCommittedMoveForGame();
         }
         return requestToCommittedMove[latestReqId];
     }
