@@ -24,7 +24,10 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     uint256 private gId = 1; // game id counter.
     mapping(uint256 gameId => GameData) private gd; // game data mapping.
 
+    ///_________________________________________________________________________________________________________________________________
     /// ERRORS
+    ///_________________________________________________________________________________________________________________________________
+
     error PlayerAlreadyInGame();
     error PlayerNotInGame();
     error GameAlreadyStarted();
@@ -42,7 +45,10 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     error CardSizeNotSupported();
     error CardDeckSizeTooSmall();
 
+    ///_________________________________________________________________________________________________________________________________
     /// EVENTS
+    ///_________________________________________________________________________________________________________________________________
+    
     event PlayerForfeited(uint256 indexed gameId, uint256 playerIndex);
     event PlayerBootedOut(uint256 indexed gameId, uint256 playerIndex);
     event PlayerJoined(uint256 indexed gameId, address player);
@@ -59,7 +65,9 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
     constructor() AsyncHandler() {}
 
+    ///_________________________________________________________________________________________________________________________________
     /// GAME ACTION FUNCTIONS
+    ///_________________________________________________________________________________________________________________________________
 
     /// @dev Creates a new game with the specified parameters and returns the game ID.
     ///
@@ -124,6 +132,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         emit GameCreated(gameId, msg.sender);
     }
 
+    ///_________________________________________________________________________________________________________________________________
+
     /// @dev Allows a player to join an existing game.
     ///
     /// If the proposed number of players is set during game creation, only those players can join.
@@ -156,6 +166,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         IManagerHook(gameCreator).onJoinGame(game.hookPermissions, gameId, playerToAdd);
         emit PlayerJoined(gameId, playerToAdd);
     }
+
+    ///_________________________________________________________________________________________________________________________________
 
     /// @dev Starts a game that has been created and joined by players.
     ///
@@ -206,6 +218,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         finish(gameId, game, endGame);
     }
 
+    ///_________________________________________________________________________________________________________________________________
+    
     /// @dev Commits a move for the current player in the specified game.
     ///
     /// If a player intends to play or defend with a card, they must first commit the card so that it can be decrypted.
@@ -231,6 +245,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         euint8 cardToCommit = game.getCardToCommit(player.deckMap, cardIndex);
         _commitMove(gameId, cardToCommit, action, cardIndex, currentTurnIndex);
     }
+
+    ///_________________________________________________________________________________________________________________________________
 
     /// @dev Executes a move for the current player in the specified game.
     ///
@@ -302,6 +318,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         finish(gameId, game, canEndGame);
     }
 
+    ///_________________________________________________________________________________________________________________________________
+
     /// @dev Allows a player to forfeit the game they are currently in.
     ///
     /// When a player forfeits, they are removed from the game and marked as forfeited.
@@ -321,6 +339,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
         emit PlayerForfeited(gameId, playerIdx);
     }
+
+    ///_________________________________________________________________________________________________________________________________
 
     /// @dev Boots out a player from the specified game.
     ///
@@ -362,7 +382,9 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         emit PlayerBootedOut(gameId, playerIdx);
     }
 
+    ///_________________________________________________________________________________________________________________________________
     /// CALLBACK FUNCTIONS
+    ///_________________________________________________________________________________________________________________________________
 
     /// @dev Handles the callback for a committed move.
     function handleCommitMove(uint256 requestId, bytes memory clearTexts, bytes memory signatures)
@@ -414,7 +436,9 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         IManagerHook(game.gameCreator).onFinishGame(game.hookPermissions, cmd.gameId, playersData, marketDeck);
     }
 
+    ///_________________________________________________________________________________________________________________________________
     /// INTERNAL FUNCTIONS
+    ///_________________________________________________________________________________________________________________________________
 
     /// Checks if core conditions to end the game are met and ends the game if so.
     /// A game will end if:
@@ -573,7 +597,9 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         game.lastMoveTimestamp = uint40(block.timestamp);
     }
 
+    ///_________________________________________________________________________________________________________________________________
     /// VALIDATION FUNCTIONS
+    ///_________________________________________________________________________________________________________________________________
 
     /// @dev Ensures that the caller is the valid current player in the game.
     function ensureValidCaller(address currentPlayer, uint8 playerIndex, PlayerStoreMap playerStoreMap) internal view {
@@ -591,7 +617,9 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         if (hasCommittedAction(gameId)) revert PlayerAlreadyCommittedAction();
     }
 
+    ///_________________________________________________________________________________________________________________________________
     /// VIEW FUNCTIONS
+    ///_________________________________________________________________________________________________________________________________
 
     function getPlayerHand(uint256 gameId, uint256 playerIndex) external view returns (DeckMap, euint256[2] memory) {
         PlayerData memory player = gd[gameId].players[playerIndex];
