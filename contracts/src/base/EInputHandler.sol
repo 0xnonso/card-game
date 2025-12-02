@@ -5,48 +5,82 @@ import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {
     FHE,
     euint128,
+    euint16,
     euint256,
+    euint32,
     euint64,
+    euint8,
     externalEuint128,
+    externalEuint16,
     externalEuint256,
-    externalEuint64
+    externalEuint32,
+    externalEuint64,
+    externalEuint8
 } from "@fhevm/solidity/lib/FHE.sol";
 
-enum InputOneType {
+enum InputType {
+    _EMPTY,
+    _EUINT8,
+    _EUINT16,
+    _EUINT32,
     _EUINT64,
     _EUINT128,
     _EUINT256
 }
 
 struct EInputData {
-    externalEuint256 inputZero;
-    InputOneType inputOneType;
-    externalEuint64 inputOne64;
-    externalEuint128 inputOne128;
-    externalEuint256 inputOne256;
+    InputType inputType;
+    externalEuint8 inputEuint8;
+    externalEuint16 inputEuint16;
+    externalEuint32 inputEuint32;
+    externalEuint64 inputEuint64;
+    externalEuint128 inputEuint128;
+    externalEuint256 inputEuint256;
 }
 
 abstract contract EInputHandler is SepoliaConfig {
-    // this function takes in two encrypted inputs and their proof.
-    // the first input is always a euint256, the second input can be a euint64, euint128 or euint256 based on inputOneType.
-    function _handleInputData(EInputData calldata einputData, bytes calldata inputProof)
+    error EInputData_inputTypeCannotBeEmpty();
+
+    function _handleInputData(EInputData calldata einput0, EInputData calldata einput1, bytes calldata inputProof)
         internal
         returns (euint256[2] memory out)
     {
-        out[0] = FHE.fromExternal(einputData.inputZero, inputProof);
-        if (einputData.inputOneType == InputOneType._EUINT64) {
-            euint64 value = FHE.fromExternal(einputData.inputOne64, inputProof);
-            out[1] = FHE.asEuint256(value);
+        if (einput0.inputType == InputType._EMPTY) {
+            revert EInputData_inputTypeCannotBeEmpty();
         }
-        if (einputData.inputOneType == InputOneType._EUINT128) {
-            euint128 value = FHE.fromExternal(einputData.inputOne128, inputProof);
-            out[1] = FHE.asEuint256(value);
-        }
-        if (einputData.inputOneType == InputOneType._EUINT256) {
-            euint256 value = FHE.fromExternal(einputData.inputOne256, inputProof);
-            out[1] = value;
-        }
+        out[0] = _verifyExternalInputData(einput0, inputProof);
+        out[1] = _verifyExternalInputData(einput1, inputProof);
+
         FHE.allowThis(out[0]);
         FHE.allowThis(out[1]);
+    }
+
+    function _verifyExternalInputData(EInputData calldata einputData, bytes calldata inputProof)
+        internal
+        returns (euint256 out)
+    {
+        if (einputData.inputType == InputType._EUINT8) {
+            euint8 value = FHE.fromExternal(einputData.inputEuint8, inputProof);
+            out = FHE.asEuint256(value);
+        }
+        if (einputData.inputType == InputType._EUINT16) {
+            euint16 value = FHE.fromExternal(einputData.inputEuint16, inputProof);
+            out = FHE.asEuint256(value);
+        }
+        if (einputData.inputType == InputType._EUINT32) {
+            euint32 value = FHE.fromExternal(einputData.inputEuint32, inputProof);
+            out = FHE.asEuint256(value);
+        }
+        if (einputData.inputType == InputType._EUINT64) {
+            euint64 value = FHE.fromExternal(einputData.inputEuint64, inputProof);
+            out = FHE.asEuint256(value);
+        }
+        if (einputData.inputType == InputType._EUINT128) {
+            euint128 value = FHE.fromExternal(einputData.inputEuint128, inputProof);
+            out = FHE.asEuint256(value);
+        }
+        if (einputData.inputType == InputType._EUINT256) {
+            out = FHE.fromExternal(einputData.inputEuint256, inputProof);
+        }
     }
 }

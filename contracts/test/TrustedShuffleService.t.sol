@@ -18,7 +18,7 @@ contract TrustedShuffleServiceTest is Test {
     }
 
     function testStoreAndUseRealProofs() public {
-        bytes[] memory proofs = TrustedShuffleProofs.allProofs();
+        bytes[] memory proofs = ShuffleProofs.allProofs();
         uint256 proofsCount = proofs.length;
         uint256 proofSize = proofs[0].length;
         for (uint256 i = 1; i < proofsCount; i++) {

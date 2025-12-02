@@ -12,7 +12,8 @@ import {euint256} from "@fhevm/solidity/lib/FHE.sol";
 
 interface ICardEngine {
     struct CreateGameParams {
-        EInputData inputData;
+        EInputData input0;
+        EInputData input1;
         bytes inputProof;
         address[] proposedPlayers;
         IRuleset gameRuleset;

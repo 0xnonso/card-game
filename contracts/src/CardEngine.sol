@@ -6,7 +6,7 @@ import {ReentrancyGuard} from "solady/src/utils/ReentrancyGuard.sol";
 
 import {AsyncHandler} from "./base/AsyncHandler.sol";
 import {EInputData, EInputHandler} from "./base/EInputHandler.sol";
-import {ADDRESS_MASK, U16_MASK, U64_MASK, U8_MASK} from "./helpers/Constants.sol";
+import {Constants} from "./helpers/Constants.sol";
 import {ICardEngine} from "./interfaces/ICardEngine.sol";
 import {IManagerHook, IManagerView} from "./interfaces/IManager.sol";
 import {IRuleset} from "./interfaces/IRuleset.sol";
@@ -16,18 +16,10 @@ import {Card, CardLib} from "./types/Card.sol";
 import {Hook, HookPermissions} from "./types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "./types/Map.sol";
 
-// import "hardhat/console.sol";
-
 contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard {
     using ConditionalsLib for *;
     using Hook for IManagerHook;
     using Hook for IManagerView;
-
-    uint256 constant MAX_DELAY = 4 minutes;
-    // max number of players in a game.
-    uint256 constant MAX_PLAYERS_LEN = 8;
-    uint256 constant MIN_PLAYERS_LEN = 2;
-    uint256 constant ALL_OTHER_PLAYERS = type(uint8).max;
 
     uint256 private gId = 1; // game id counter.
     mapping(uint256 gameId => GameData) private gd; // game data mapping.
@@ -48,6 +40,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     error PlayerAlreadyCommittedAction();
     error InvalidPlayerIndex();
     error CardSizeNotSupported();
+    error CardDeckSizeTooSmall();
 
     /// EVENTS
     event PlayerForfeited(uint256 indexed gameId, uint256 playerIndex);
@@ -67,6 +60,25 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     constructor() AsyncHandler() {}
 
     /// GAME ACTION FUNCTIONS
+
+    /// @dev Creates a new game with the specified parameters and returns the game ID.
+    ///
+    /// This function initializes the game state, including the market deck, ruleset, and proposed players.
+    /// It can create a game that allows up to `params.maxPlayers` players to join, or restricts joining to
+    /// a predefined list of `params.proposedPlayers`.
+    ///
+    /// Caller of this function is set as the game creator (manager), with hook permissions defined by `params.hookPermissions`
+    /// that determines which hooks can be called during the game lifecycle.
+    ///
+    /// The ruleset must support the specified card bit size (`params.cardBitSize`) and card deck size (`params.cardDeckSize`);
+    /// otherwise, the function will revert.
+    /// Card bit size is the bit width of each card in the deck. The maximum card bit size is 8 bits, while the minimum is 5 bits.
+    /// A `params.cardBitSize` value of 0 represents 8-bit, 1 represents 7-bit, and so on down to 5-bit.
+    /// The card deck size is the total number of cards in the deck. The maximum deck size is 62 cards, and the total number of cards
+    /// must be sufficient to deal the initial hand size to all players.
+    ///
+    /// `params.input0`, `params.input1`, and `params.inputProof` are used to initialize the encrypted market deck. If (deck size * bit size)
+    /// is less than or equals 256 bits, then `params.input1` can be empty. But param.input0 cannot be empty.
     function createGame(CreateGameParams calldata params) public returns (uint256 gameId) {
         gameId = gId;
         GameData storage game = gd[gameId];
@@ -75,18 +87,25 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         uint8 numProposedPlayers = uint8(params.proposedPlayers.length);
         uint8 maxPlayers = numProposedPlayers != 0 ? numProposedPlayers : params.maxPlayers;
 
-        if (maxPlayers > MAX_PLAYERS_LEN) revert PlayersLimitExceeded();
-        if (maxPlayers < MIN_PLAYERS_LEN) revert PlayersLimitNotMet();
+        if (maxPlayers > Constants.MAX_PLAYERS_LEN) revert PlayersLimitExceeded();
+        if (maxPlayers < Constants.MIN_PLAYERS_LEN) revert PlayersLimitNotMet();
 
         for (uint256 i = 0; i < numProposedPlayers; i++) {
             address proposedPlayer = params.proposedPlayers[i];
             game.isProposedPlayer[proposedPlayer] = true;
         }
 
+        require(params.initialHandSize != 0);
+
         if (!params.gameRuleset.supportsCardSize(params.cardBitSize)) revert CardSizeNotSupported();
         game.ruleset = params.gameRuleset;
+
         // initialize market deck map with card size and deck size.
-        game.marketDeckMap = CardEngineLib.initializeMarketDeckMap(params.cardDeckSize, params.cardBitSize);
+        DeckMap marketDeckMap = CardEngineLib.initializeMarketDeckMap(params.cardDeckSize, params.cardBitSize);
+        if ((params.initialHandSize * maxPlayers) > marketDeckMap.len()) {
+            revert CardDeckSizeTooSmall();
+        }
+        game.marketDeckMap = marketDeckMap;
         game.initialHandSize = params.initialHandSize; // set initial hand size.
         game.numProposedPlayers = numProposedPlayers;
         game.playersLeftToJoin = maxPlayers; // initially, players left to join is max players.
@@ -94,7 +113,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         game.hookPermissions = params.hookPermissions; // set initial hand size.
 
         // initialize market deck.
-        euint256[2] memory marketDeck = _handleInputData(params.inputData, params.inputProof);
+        euint256[2] memory marketDeck = _handleInputData(params.input0, params.input1, params.inputProof);
         game.marketDeck[0] = marketDeck[0];
         game.marketDeck[1] = marketDeck[1];
 
@@ -105,6 +124,10 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         emit GameCreated(gameId, msg.sender);
     }
 
+    /// @dev Allows a player to join an existing game.
+    ///
+    /// If the proposed number of players is set during game creation, only those players can join.
+    /// else, any player can join until the max players limit is reached.
     function joinGame(uint256 gameId) public nonReentrant {
         GameData storage game = gd[gameId];
 
@@ -134,6 +157,12 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         emit PlayerJoined(gameId, playerToAdd);
     }
 
+    /// @dev Starts a game that has been created and joined by players.
+    ///
+    /// Starts the game if all proposed players or max players have joined. If not all players have joined, only the game
+    /// creator can force start the game.
+    /// Players are dealt their initial hands, and the game status is updated.
+    /// Also, this triggers the `onStartGame` hook, which can potentially end the game immediately.
     function startGame(uint256 gameId) external {
         GameData storage game = gd[gameId];
 
@@ -177,6 +206,13 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         finish(gameId, game, endGame);
     }
 
+    /// @dev Commits a move for the current player in the specified game.
+    ///
+    /// If a player intends to play or defend with a card, they must first commit the card so that it can be decrypted.
+    ///
+    /// Note: Currently, the contract does not verify that the card to commit is valid under the game rules, so the player is expected
+    /// to commit the correct card, since there is no way to back out of a committed move.
+    /// Penalty for committing a wrong card is mostly handled by the game ruleset or the game manager via the `canBootOut` hook.
     function commitMove(uint256 gameId, Action action, uint256 cardIndex) external {
         GameData storage game = gd[gameId];
 
@@ -196,6 +232,13 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         _commitMove(gameId, cardToCommit, action, cardIndex, currentTurnIndex);
     }
 
+    /// @dev Executes a move for the current player in the specified game.
+    ///
+    /// Executing a move involves resolving the player's action according to the game ruleset. Some actions require a committed move.
+    /// i.e Play, Defend.
+    /// The ruleset is granted access to the player's hand in case it needs access to it to resolve the move.
+    ///
+    /// Game can end after executing a move based on the return value of the `onExecuteMove` hook.
     function executeMove(uint256 gameId, Action action, bytes memory extraData) external nonReentrant {
         GameData storage game = gd[gameId];
 
@@ -212,26 +255,25 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         Card card;
         bool isSpecialCard;
 
-        {
-            // actions {PLAY, DEFEND} require a committed move; you must commit a card before calling `executeMove`.
-            // but they’re still declarative: the engine enforces nothing beyond the commitment; the ruleset decides the rest.
-            // the other actions {DRAW, NEUTRAL} are purely declarative (no commit) and are interpreted by the ruleset.
-            if (action.eqsOr(Action.Play, Action.Defend)) {
-                CommittedMoveData memory committedMove = getLatestCommittedMove(gameId);
-                card = committedMove.decryptedCard;
-                action = committedMove.action;
-                (player.deckMap, player.hand) = game.updatePlayerHand(player, playerTurnIdx, committedMove.cardIndex);
-                // check if player is eligible for a special move. this is false by default if no hook is set.
-                if (ruleset.isSpecialMoveCard(card)) {
-                    isSpecialCard = IManagerView(gameCreator).hasSpecialMoves(
-                        hookPermissions, gameId, player.playerAddr, card, committedMove.action
-                    );
-                }
-                // clean up commitment.
-                _clearLatestCommittedMove(gameId);
-            } else {
-                ensureNoCommittedAction(gameId);
+        // actions {PLAY, DEFEND} require a committed move; you must commit a card before calling `executeMove`.
+        // but they’re still declarative: the engine enforces nothing beyond the commitment; the ruleset decides the rest.
+        // the other actions {DRAW, NEUTRAL} are purely declarative (no commit) and are interpreted by the ruleset.
+
+        if (action.eqsOr(Action.Play, Action.Defend)) {
+            CommittedMoveData memory committedMove = getLatestCommittedMove(gameId);
+            card = committedMove.decryptedCard;
+            action = committedMove.action;
+            (player.deckMap, player.hand) = game.updatePlayerHand(player, playerTurnIdx, committedMove.cardIndex);
+            // check if player is eligible for a special move. this is false by default if no hook is set.
+            if (ruleset.isSpecialMoveCard(card)) {
+                isSpecialCard = IManagerView(gameCreator).hasSpecialMoves(
+                    hookPermissions, gameId, player.playerAddr, card, committedMove.action
+                );
             }
+            // clean up commitment.
+            _clearLatestCommittedMove(gameId);
+        } else {
+            ensureNoCommittedAction(gameId);
         }
 
         IRuleset.ResolveMoveParams memory moveParams = IRuleset.ResolveMoveParams({
@@ -260,6 +302,9 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         finish(gameId, game, canEndGame);
     }
 
+    /// @dev Allows a player to forfeit the game they are currently in.
+    ///
+    /// When a player forfeits, they are removed from the game and marked as forfeited.
     function forfeit(uint256 gameId) external nonReentrant {
         GameData storage game = gd[gameId];
 
@@ -277,6 +322,11 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         emit PlayerForfeited(gameId, playerIdx);
     }
 
+    /// @dev Boots out a player from the specified game.
+    ///
+    /// A player can be booted out if they have exceeded the allowed delay for making a move.
+    /// But this is the default condition and the game manager can override this via the `canBootOut` hook.
+    /// Anyone can call this function to boot a player out if the conditions are met.
     function bootOut(uint256 gameId, uint256 playerIdx) external nonReentrant {
         GameData storage game = gd[gameId];
 
@@ -296,7 +346,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         uint40 lastMoveTimestamp = game.lastMoveTimestamp;
         // boot out a player if their last move timestamp + MAX_DELAY is less than the current block timestamp.
         // this is the default boot out condition if no hook is set.
-        bool defaultCondition = (lastMoveTimestamp + MAX_DELAY) <= block.timestamp;
+        bool defaultCondition = (lastMoveTimestamp + Constants.MAX_DELAY) <= block.timestamp;
         // call `canBootOut` hook to check if player can be booted out.
         // this overrides the default boot out condition of `lastMoveTimestamp + MAX_DELAY <= block.timestamp`.
         address gameCreator = game.gameCreator;
@@ -313,6 +363,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     }
 
     /// CALLBACK FUNCTIONS
+
+    /// @dev Handles the callback for a committed move.
     function handleCommitMove(uint256 requestId, bytes memory clearTexts, bytes memory signatures)
         external
         virtual
@@ -323,10 +375,12 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         // validate the callback signature and ensure this is the latest request.
         __validateCallbackSignature(requestId, clearTexts, gameId, signatures, true);
         _fulfillCommittedMove(requestId, clearTexts);
+        // update last move timestamp.
         gd[gameId].lastMoveTimestamp = uint40(block.timestamp);
         emit MoveCommitted(gameId, committedMove.playerIndex, committedMove.action);
     }
 
+    /// @dev Handles the callback for a committed market deck.
     function handleCommitMarketDeck(uint256 requestId, bytes memory clearTexts, bytes memory signatures)
         external
         virtual
@@ -361,6 +415,14 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     }
 
     /// INTERNAL FUNCTIONS
+
+    /// Checks if core conditions to end the game are met and ends the game if so.
+    /// A game will end if:
+    ///  - preCondition is true (i.e from a hook).
+    ///  - only one player is left in the game.
+    ///  - the market deck is empty.
+    ///
+    /// If the game ends, the market deck is committed.
     function finish(uint256 gameId, GameData storage game, bool preCondition) internal {
         bool playerStoreSingle = game.playerStoreMap.len() == 1;
         bool gameMarketDeckEmpty = game.marketDeckMap.isMapEmpty();
@@ -376,6 +438,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         }
     }
 
+    /// If the forfeiting player is the current player, updates the turn index to the next player.
+    /// Calls the `onPlayerExit` hook with `forfeited` set to true.
     function _forfeit(
         uint256 gameId,
         GameData storage game,
@@ -460,7 +524,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
                 // if `againstPlayerIdx` is not `ALL_OTHER_PLAYERS`, then apply effect against only `againstPlayerIdx`.
                 // otherwise, apply effect against all players.
-                if (againstPlayerIdx != ALL_OTHER_PLAYERS) {
+                if (againstPlayerIdx != Constants.ALL_OTHER_PLAYERS) {
                     if (moveParams.playerStoreMap.isEmpty(againstPlayerIdx)) {
                         revert InvalidPlayerIndex();
                     }
@@ -510,20 +574,25 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     }
 
     /// VALIDATION FUNCTIONS
+
+    /// @dev Ensures that the caller is the valid current player in the game.
     function ensureValidCaller(address currentPlayer, uint8 playerIndex, PlayerStoreMap playerStoreMap) internal view {
         if (playerStoreMap.isEmpty(playerIndex)) revert PlayerNotInGame();
         if (currentPlayer != msg.sender) revert InvalidPlayerAddress(msg.sender);
     }
 
+    /// @dev Ensures that the game has started.
     function ensureGameStarted(GameStatus currentStatus) internal pure {
         if (currentStatus.notEqs(GameStatus.Started)) revert GameNotStarted();
     }
 
+    /// @dev Ensures that the current player has not already committed an action.
     function ensureNoCommittedAction(uint256 gameId) internal view {
         if (hasCommittedAction(gameId)) revert PlayerAlreadyCommittedAction();
     }
 
     /// VIEW FUNCTIONS
+
     function getPlayerHand(uint256 gameId, uint256 playerIndex) external view returns (DeckMap, euint256[2] memory) {
         PlayerData memory player = gd[gameId].players[playerIndex];
         return (player.deckMap, player.hand);

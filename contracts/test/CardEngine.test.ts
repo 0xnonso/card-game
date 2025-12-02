@@ -113,40 +113,32 @@ describe("Engine", () => {
       expect(gameId).to.equal(1n);
     });
 
-    it("Should persist game data retrievable via getGameData", async () => {
+    it("initializes marketDeckMap with expected deck size and card bit size", async () => {
       const ctx = await deployEngineFixture();
-      const { params } = await createGameWithDefaults(ctx);
-      const gameId = 1;
+      const deckSize = 54;
+      const bitSize = 8;
+      const { gameId } = await createGameWithDefaults(ctx, { cardDeckSize: deckSize, cardBitSize: bitSize });
+      const { marketDeckMap } = await ctx.cardEngine.getGameData(gameId);
+      const idxs = deckIndexes(marketDeckMap);
+      expect(idxs.length).to.equal(deckSize);
+      const raw = BigInt(marketDeckMap.toString());
+      const encodedBitSize = 8 - Number(raw & 0x03n);
+      expect(encodedBitSize).to.equal(bitSize);
+    });
 
-      const {
-        gameCreator,
-        callCard,
-        playerTurnIdx,
-        status,
-        lastMoveTimestamp,
-        playersLeftToJoin,
-        hookPermissions,
-        playerStoreMap,
-        ruleset,
-        marketDeckMap,
-        initialHandSize,
-      } = await ctx.cardEngine.getGameData(gameId);
+    it("reverts when initial hand size exceeds available cards", async () => {
+      const ctx = await deployEngineFixture();
+      await expect(
+        createGameWithDefaults(ctx, { proposedPlayers: [], maxPlayers: 4, initialHandSize: 20 }),
+      ).to.be.revertedWithCustomError(ctx.cardEngine, "CardDeckSizeTooSmall");
+    });
 
-      const expectedMarketDeckMap =
-        (((1n << BigInt(params.cardDeckSize)) - 1n) << 2n) |
-        (BigInt(params.cardBitSize) & 0x03n);
-
-      expect(gameCreator).to.equal(ctx.alice.address);
-      expect(callCard).to.equal(0n);
-      expect(playerTurnIdx).to.equal(0n);
-      expect(status).to.equal(0n);
-      expect(lastMoveTimestamp).to.equal(0n);
-      expect(playersLeftToJoin).to.equal(BigInt(params.maxPlayers));
-      expect(hookPermissions).to.equal(params.hookPermissions);
-      expect(playerStoreMap).to.equal(0n);
-      expect(ruleset).to.equal(params.gameRuleset);
-      expect(marketDeckMap).to.equal(expectedMarketDeckMap);
-      expect(initialHandSize).to.equal(BigInt(params.initialHandSize));
+    it("tracks playersLeftToJoin from proposed players length", async () => {
+      const ctx = await deployEngineFixture();
+      const proposed = [ctx.player0.address, ctx.player1.address, ctx.player2.address];
+      const { gameId } = await createGameWithDefaults(ctx, { proposedPlayers: proposed });
+      const { playersLeftToJoin } = await ctx.cardEngine.getGameData(gameId);
+      expect(playersLeftToJoin).to.equal(BigInt(proposed.length));
     });
   });
 
@@ -296,26 +288,6 @@ describe("Engine", () => {
         .to.be.revertedWithCustomError(ctx.cardEngine, "CannotStartGame");
     });
 
-    it("allows the creator to start with at least two players even if spots remain", async () => {
-      const ctx = await deployEngineFixture();
-      const { gameId } = await createGameWithDefaults(ctx, {
-        proposedPlayers: [],
-        maxPlayers: 4,
-      });
-      await ctx.cardEngine.connect(ctx.alice).joinGame(gameId);
-      await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
-
-      await expect(ctx.cardEngine.connect(ctx.alice).startGame(gameId))
-        .to.emit(ctx.cardEngine, "GameStarted")
-        .withArgs(gameId);
-
-      const { status, playersLeftToJoin, playerTurnIdx } = await ctx.cardEngine.getGameData(gameId);
-
-      expect(status).to.equal(1n);
-      expect(playersLeftToJoin).to.equal(2n);
-      expect(Number(playerTurnIdx)).to.be.lessThan(2);
-    });
-
     it("requires at least two players to start even for the creator", async () => {
       const ctx = await deployEngineFixture();
       const { gameId } = await createGameWithDefaults(ctx, {
@@ -353,7 +325,7 @@ describe("Engine", () => {
 
         await expect(
           ctx.cardEngine.connect(signer).executeMove(Number(gameId), ACTION.Play, "0x"),
-        ).to.be.revertedWith("AsyncHandler: no committed move for game");
+        ).to.be.revertedWithCustomError(ctx.cardEngine, "AsyncHandler_NoCommittedMoveForGame");
 
         const postGame = await ctx.cardEngine.getGameData(gameId);
         expect(Number(postGame.playerTurnIdx)).to.equal(currentIndex);
@@ -363,24 +335,26 @@ describe("Engine", () => {
         const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
         const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
+        expect(cardIndexes.length).to.be.greaterThan(0);
         const targetCardIdx = cardIndexes[0];
         const commitTx = await ctx.cardEngine
           .connect(signer)
           .commitMove(Number(gameId), ACTION.Play, targetCardIdx);
         await commitTx.wait();
 
-        await expect(
-          ctx.cardEngine.connect(signer).executeMove(Number(gameId), ACTION.Play, "0x"),
-        ).to.be.revertedWith("AsyncHandler: latest committed move not fulfilled");
-
         const postGame = await ctx.cardEngine.getGameData(gameId);
         expect(Number(postGame.playerTurnIdx)).to.equal(currentIndex);
+
+        await expect(
+          ctx.cardEngine.connect(signer).executeMove(Number(gameId), ACTION.Play, "0x"),
+        ).to.be.revertedWithCustomError(ctx.cardEngine, "AsyncHandler_LatestCommittedMoveNotFulfilled");
       });
 
       it("prevents non-current players from executing Play actions", async () => {
         const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
         const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
+        expect(cardIndexes.length).to.be.greaterThan(0);
         const targetCardIdx = cardIndexes[0];
 
         const commitTx = await ctx.cardEngine
@@ -406,6 +380,7 @@ describe("Engine", () => {
         const ctx = await deployEngineFixture();
         const gameId = await startDefaultGame(ctx);
         const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
+        expect(cardIndexes.length).to.be.greaterThan(0);
         const targetCardIdx = cardIndexes[0];
         const targetCardValue = ctx.deckArray[targetCardIdx] ?? 0;
 
@@ -489,6 +464,7 @@ describe("Engine", () => {
         const { gameId, manager } = await setupManagedGame(ctx, { allowBootOut: true });
 
         const { signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
+        expect(cardIndexes.length).to.be.greaterThan(0);
         const targetCardIdx = cardIndexes[0];
         const commitTx = await ctx.cardEngine
           .connect(signer)

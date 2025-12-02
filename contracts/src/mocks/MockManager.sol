@@ -25,11 +25,7 @@ contract MockManager is BaseManager {
 
     function onPlayerExit(uint256, address, bool) external override onlyCardEngine {}
 
-    function onFinishGame(uint256, PlayerScoreData[] calldata, uint256[2] calldata)
-        external
-        override
-        onlyCardEngine
-    {}
+    function onFinishGame(uint256, PlayerScoreData[] calldata, uint256[2] calldata) external override onlyCardEngine {}
 
     // IManagerView
     function hasSpecialMoves(uint256, address, Card, Action) external pure override returns (bool) {

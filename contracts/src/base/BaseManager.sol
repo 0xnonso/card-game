@@ -12,7 +12,7 @@ abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
 
     constructor(ICardEngine _cardEngine) BaseModifier(_cardEngine) {}
 
-    function hasSpecialMoves(uint256 gameId, address player, Card playingCard, Action action)
+    function hasSpecialMoves(uint256, /*gameId*/ address, /*player*/ Card, /*playingCard*/ Action /*action*/ )
         external
         pure
         virtual
@@ -21,7 +21,7 @@ abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
         revert HookNotSupported();
     }
 
-    function canBootOut(uint256 gameId, address player, uint40 playerLastMoveTimestamp)
+    function canBootOut(uint256, /*gameId*/ address, /*player*/ uint40 /*playerLastMoveTimestamp*/ )
         external
         view
         virtual
@@ -30,15 +30,15 @@ abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
         revert HookNotSupported();
     }
 
-    function onStartGame(uint256 gameId) external virtual onlyCardEngine returns (bool) {
+    function onStartGame(uint256 /*gameId*/ ) external virtual onlyCardEngine returns (bool) {
         revert HookNotSupported();
     }
 
-    function onJoinGame(uint256 gameId, address player) external virtual onlyCardEngine {
+    function onJoinGame(uint256, /*gameId*/ address /*player*/ ) external virtual onlyCardEngine {
         revert HookNotSupported();
     }
 
-    function onExecuteMove(uint256 gameId, address player, Card playingCard, Action action)
+    function onExecuteMove(uint256, /*gameId*/ address, /*player*/ Card, /*playingCard*/ Action /*action*/ )
         external
         virtual
         onlyCardEngine
@@ -47,15 +47,19 @@ abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
         revert HookNotSupported();
     }
 
-    function onPlayerExit(uint256 gameId, address player, bool forfeited) external virtual onlyCardEngine {
-        revert HookNotSupported();
-    }
-
-    function onFinishGame(uint256 gameId, PlayerScoreData[] calldata playersData, uint256[2] calldata marketDeck)
+    function onPlayerExit(uint256, /*gameId*/ address, /*player*/ bool /*forfeited*/ )
         external
         virtual
         onlyCardEngine
     {
+        revert HookNotSupported();
+    }
+
+    function onFinishGame(
+        uint256, /*gameId*/
+        PlayerScoreData[] calldata, /*playersData*/
+        uint256[2] calldata /*marketDeck*/
+    ) external virtual onlyCardEngine {
         revert HookNotSupported();
     }
 }

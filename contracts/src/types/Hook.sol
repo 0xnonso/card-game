@@ -23,9 +23,12 @@ library Hook {
         return (HookPermissions.unwrap(permissions) & flag) != 0;
     }
 
-    function onStartGame(IManagerHook hook, HookPermissions permissions, uint256 gameId) internal returns (bool) {
+    function onStartGame(IManagerHook hook, HookPermissions permissions, uint256 gameId)
+        internal
+        returns (bool endGame)
+    {
         if (permissions.hasPermission(ON_START_GAME_FLAG)) {
-            return hook.onStartGame(gameId);
+            endGame = hook.onStartGame(gameId);
         }
     }
 
@@ -42,9 +45,9 @@ library Hook {
         address player,
         Card playingCard,
         Action action
-    ) internal returns (bool) {
+    ) internal returns (bool endGame) {
         if (permissions.hasPermission(ON_EXECUTE_MOVE_FLAG)) {
-            return hook.onExecuteMove(gameId, player, playingCard, action);
+            endGame = hook.onExecuteMove(gameId, player, playingCard, action);
         }
     }
 
@@ -79,9 +82,9 @@ library Hook {
         address player,
         Card playingCard,
         Action action
-    ) internal view returns (bool) {
+    ) internal view returns (bool isSpecial) {
         if (permissions.hasPermission(HAS_SPECIAL_MOVES_FLAG)) {
-            return hook.hasSpecialMoves(gameId, player, playingCard, action);
+            isSpecial = hook.hasSpecialMoves(gameId, player, playingCard, action);
         }
     }
 

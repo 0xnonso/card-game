@@ -5,6 +5,8 @@ import type { CardEngine } from "../../types/src/CardEngine";
 import type { WhotRuleset } from "../../types/src/rules/WhotRuleset";
 import type { MockManager } from "../../types/src/mocks/MockManager";
 
+const ZERO_HANDLE = `0x${"00".repeat(32)}`;
+
 export type EncryptedDeck = { handles: string[]; inputProof: string };
 export type EngineCtx = {
   cardEngine: CardEngine;
@@ -51,12 +53,27 @@ export const buildEncryptedInputFor = async (
   return { handles, inputProof };
 };
 
-export const buildDefaultInputData = (encrypted: EncryptedDeck): EInputDataStruct => ({
-  inputZero: encrypted.handles[0],
-  inputOneType: 2n,
-  inputOne64: ethers.ZeroHash,
-  inputOne128: ethers.ZeroHash,
-  inputOne256: encrypted.handles[1],
+export const buildInputDataPair = (
+  encrypted: EncryptedDeck,
+): { input0: EInputDataStruct; input1: EInputDataStruct } => ({
+  input0: {
+    inputType: 6n, // InputType._EUINT256
+    inputEuint8: ZERO_HANDLE,
+    inputEuint16: ZERO_HANDLE,
+    inputEuint32: ZERO_HANDLE,
+    inputEuint64: ZERO_HANDLE,
+    inputEuint128: ZERO_HANDLE,
+    inputEuint256: encrypted.handles[0],
+  },
+  input1: {
+    inputType: 6n, // InputType._EUINT256
+    inputEuint8: ZERO_HANDLE,
+    inputEuint16: ZERO_HANDLE,
+    inputEuint32: ZERO_HANDLE,
+    inputEuint64: ZERO_HANDLE,
+    inputEuint128: ZERO_HANDLE,
+    inputEuint256: encrypted.handles[1],
+  },
 });
 
 const parseGameId = (logs: readonly any[] | undefined, iface: CardEngine["interface"]): bigint => {
@@ -82,12 +99,14 @@ export const createGameWithDefaults = async (
     initialHandSize: number;
     proposedPlayers: string[];
     hookPermissions: bigint;
-    inputData: EInputDataStruct;
+    input0: EInputDataStruct;
+    input1: EInputDataStruct;
     inputProof: string;
     encryptedDeck: EncryptedDeck;
   }> = {},
 ) => {
   const encrypted = overrides.encryptedDeck ?? ctx.encryptedDeck;
+  const inputs = buildInputDataPair(encrypted);
 
   const params = {
     gameRuleset: overrides.gameRuleset ?? (await ctx.ruleset.getAddress()),
@@ -98,7 +117,8 @@ export const createGameWithDefaults = async (
     proposedPlayers:
       overrides.proposedPlayers ?? [ctx.player0.address, ctx.player1.address, ctx.player2.address],
     hookPermissions: overrides.hookPermissions ?? 0n,
-    inputData: overrides.inputData ?? buildDefaultInputData(encrypted),
+    input0: overrides.input0 ?? inputs.input0,
+    input1: overrides.input1 ?? inputs.input1,
     inputProof: overrides.inputProof ?? encrypted.inputProof,
   };
 
@@ -114,6 +134,7 @@ export const createManagedGame = async (
   overrides: Partial<{ hookPermissions: bigint }> = {},
 ) => {
   const encrypted = await buildEncryptedInputFor(ctx.cardEngine, await manager.getAddress(), ctx.deckArray);
+  const inputs = buildInputDataPair(encrypted);
   const params = {
     gameRuleset: await ctx.ruleset.getAddress(),
     cardBitSize: 8,
@@ -122,7 +143,8 @@ export const createManagedGame = async (
     initialHandSize: 2,
     proposedPlayers: [ctx.player0.address, ctx.player1.address, ctx.player2.address],
     hookPermissions: overrides.hookPermissions ?? 0xffn,
-    inputData: buildDefaultInputData(encrypted),
+    input0: inputs.input0,
+    input1: inputs.input1,
     inputProof: encrypted.inputProof,
   };
   const tx = await manager.createGame(params);

@@ -142,10 +142,8 @@ library CardEngineLib {
         pData.hand[0] = FHE.asEuint256(0);
         pData.hand[1] = FHE.asEuint256(0);
 
-        FHE.allow(pData.hand[0], player);
-        FHE.allowThis(pData.hand[0]);
-        FHE.allow(pData.hand[1], player);
-        FHE.allowThis(pData.hand[1]);
+        _fheAllow(pData.hand[0], player);
+        _fheAllow(pData.hand[1], player);
 
         uint256 playerIndex = $.players.length;
 
@@ -178,8 +176,7 @@ library CardEngineLib {
         p.hand[i] = updatedDeck;
         updatedPlayerHand = p.hand;
         $.players[playerIdx] = p;
-        FHE.allow(updatedDeck, p.playerAddr);
-        FHE.allowThis(updatedDeck);
+        _fheAllow(updatedDeck, p.playerAddr);
     }
 
     function dealInitialHand(
@@ -206,11 +203,8 @@ library CardEngineLib {
         p.hand[0] = marketDeck[0].and(mask[0]);
         p.hand[1] = marketDeck[1].and(mask[1]);
 
-        FHE.allow(p.hand[0], p.playerAddr);
-        FHE.allowThis(p.hand[0]);
-
-        FHE.allow(p.hand[1], p.playerAddr);
-        FHE.allowThis(p.hand[1]);
+        _fheAllow(p.hand[0], p.playerAddr);
+        _fheAllow(p.hand[1], p.playerAddr);
 
         p.score = MAX_UINT16;
         $.players[index] = p;
@@ -231,8 +225,7 @@ library CardEngineLib {
             uint256 mask = p.deckMap.computeMask()[i];
             euint256 updatedDeck = $.marketDeck[i].and(mask);
             $.players[currentIdx].hand[i] = updatedDeck;
-            FHE.allow(updatedDeck, p.playerAddr);
-            FHE.allowThis(updatedDeck);
+            _fheAllow(updatedDeck, p.playerAddr);
         }
         return marketDeckMap;
     }
@@ -270,21 +263,17 @@ library CardEngineLib {
             playerDeck1 = marketDeck[1].and(mask[1]);
             p.hand[0] = playerDeck0;
             p.hand[1] = playerDeck1;
-            FHE.allow(playerDeck0, p.playerAddr);
-            FHE.allowThis(playerDeck0);
-            FHE.allow(playerDeck1, p.playerAddr);
-            FHE.allowThis(playerDeck1);
+            _fheAllow(playerDeck0, p.playerAddr);
+            _fheAllow(playerDeck1, p.playerAddr);
         } else {
             if (allow0) {
                 playerDeck0 = marketDeck[0].and(mask[0]);
                 p.hand[0] = playerDeck0;
-                FHE.allow(playerDeck0, p.playerAddr);
-                FHE.allowThis(playerDeck0);
+                _fheAllow(playerDeck0, p.playerAddr);
             } else {
                 playerDeck1 = marketDeck[1].and(mask[1]);
                 p.hand[1] = playerDeck1;
-                FHE.allow(playerDeck1, p.playerAddr);
-                FHE.allowThis(playerDeck1);
+                _fheAllow(playerDeck1, p.playerAddr);
             }
         }
         $.players[currentIdx] = p;
@@ -340,21 +329,17 @@ library CardEngineLib {
                         playerDeck1 = marketDeck[1].and(mask[1]);
                         player.hand[0] = playerDeck0;
                         player.hand[1] = playerDeck1;
-                        FHE.allow(playerDeck0, player.playerAddr);
-                        FHE.allowThis(playerDeck0);
-                        FHE.allow(playerDeck1, player.playerAddr);
-                        FHE.allowThis(playerDeck1);
+                        _fheAllow(playerDeck0, player.playerAddr);
+                        _fheAllow(playerDeck1, player.playerAddr);
                     } else {
                         if (allow0) {
                             playerDeck0 = marketDeck[0].and(mask[0]);
                             player.hand[0] = playerDeck0;
-                            FHE.allow(playerDeck0, player.playerAddr);
-                            FHE.allowThis(playerDeck0);
+                            _fheAllow(playerDeck0, player.playerAddr);
                         } else {
                             playerDeck1 = marketDeck[1].and(mask[1]);
                             player.hand[1] = playerDeck1;
-                            FHE.allow(playerDeck1, player.playerAddr);
-                            FHE.allowThis(playerDeck1);
+                            _fheAllow(playerDeck1, player.playerAddr);
                         }
                     }
                 }
@@ -396,5 +381,10 @@ library CardEngineLib {
             $.players[currentIdx].deckMap = playerDeckMap;
         }
         return (marketDeckMap, playerDeckMap);
+    }
+
+    function _fheAllow(euint256 value, address grantee) internal {
+        FHE.allow(value, grantee);
+        FHE.allowThis(value);
     }
 }

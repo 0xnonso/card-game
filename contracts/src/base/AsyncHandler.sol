@@ -51,7 +51,7 @@ abstract contract AsyncHandler {
         bytes32[] memory cts = new bytes32[](1);
         cts[0] = FHE.toBytes32(cardToCommit);
 
-        uint256 reqId = FHE.requestDecryption(cts, this.handleCommitMove.selector);
+        uint256 reqId = _requestDecryption(cts, this.handleCommitMove.selector);
 
         CommittedMoveData memory committedMove = CommittedMoveData({
             gameId: gameId,
@@ -72,10 +72,10 @@ abstract contract AsyncHandler {
         cts[0] = FHE.toBytes32(marketDeck[0]);
         cts[1] = FHE.toBytes32(marketDeck[1]);
 
-        uint256 reqId = FHE.requestDecryption(cts, this.handleCommitMarketDeck.selector);
+        uint256 reqId = _requestDecryption(cts, this.handleCommitMarketDeck.selector);
 
-        FHE.makePubliclyDecryptable(marketDeck[0]);
-        FHE.makePubliclyDecryptable(marketDeck[1]);
+        // _makePubliclyDecryptable(marketDeck[0]);
+        // _makePubliclyDecryptable(marketDeck[1]);
 
         CommittedMarketDeck memory committedMarketDeck = CommittedMarketDeck({gameId: gameId, marketDeck: marketDeck});
 
@@ -145,6 +145,10 @@ abstract contract AsyncHandler {
             _hasCommittedAction[gameId] = false;
             gameIdToLatestCommittedMoveRequestId[gameId] = DEFAULT_REQUEST_ID;
         }
+    }
+
+    function _requestDecryption(bytes32[] memory cts, bytes4 selector) internal returns (uint256 reqId) {
+        reqId = FHE.requestDecryption(cts, selector);
     }
 
     function handleCommitMove(uint256 requestId, bytes memory clearTexts, bytes memory signatures) external virtual;
