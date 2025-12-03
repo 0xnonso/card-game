@@ -5,14 +5,14 @@ import {euint256, euint8} from "@fhevm/solidity/lib/FHE.sol";
 import {ReentrancyGuard} from "solady/src/utils/ReentrancyGuard.sol";
 
 import {AsyncHandler} from "./base/AsyncHandler.sol";
-import {EInputData, EInputHandler} from "./base/EInputHandler.sol";
+import {EInputHandler} from "./base/EInputHandler.sol";
 import {Constants} from "./helpers/Constants.sol";
 import {ICardEngine} from "./interfaces/ICardEngine.sol";
 import {IManagerHook, IManagerView} from "./interfaces/IManager.sol";
 import {IRuleset} from "./interfaces/IRuleset.sol";
 import {Action, CardEngineLib, GameData, GameStatus, PlayerData, PlayerScoreData} from "./libraries/CardEngineLib.sol";
 import {ConditionalsLib} from "./libraries/ConditionalsLib.sol";
-import {Card, CardLib} from "./types/Card.sol";
+import {Card} from "./types/Card.sol";
 import {Hook, HookPermissions} from "./types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "./types/Map.sol";
 
@@ -48,7 +48,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     ///_________________________________________________________________________________________________________________________________
     /// EVENTS
     ///_________________________________________________________________________________________________________________________________
-    
+
     event PlayerForfeited(uint256 indexed gameId, uint256 playerIndex);
     event PlayerBootedOut(uint256 indexed gameId, uint256 playerIndex);
     event PlayerJoined(uint256 indexed gameId, address player);
@@ -95,8 +95,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         uint8 numProposedPlayers = uint8(params.proposedPlayers.length);
         uint8 maxPlayers = numProposedPlayers != 0 ? numProposedPlayers : params.maxPlayers;
 
-        if (maxPlayers > Constants.MAX_PLAYERS_LEN) revert PlayersLimitExceeded();
-        if (maxPlayers < Constants.MIN_PLAYERS_LEN) revert PlayersLimitNotMet();
+        if (maxPlayers > Constants.MAX_PLAYERS) revert PlayersLimitExceeded();
+        if (maxPlayers < Constants.MIN_PLAYERS) revert PlayersLimitNotMet();
 
         for (uint256 i = 0; i < numProposedPlayers; i++) {
             address proposedPlayer = params.proposedPlayers[i];
@@ -219,7 +219,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     }
 
     ///_________________________________________________________________________________________________________________________________
-    
+
     /// @dev Commits a move for the current player in the specified game.
     ///
     /// If a player intends to play or defend with a card, they must first commit the card so that it can be decrypted.
@@ -628,6 +628,10 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
     function getPlayerData(uint256 gameId, uint256 playerIndex) external view returns (PlayerData memory player) {
         player = gd[gameId].players[playerIndex];
+    }
+
+    function getCurrentPlayerTurnIndex(uint256 gameId) external view returns (uint8) {
+        return gd[gameId].playerTurnIdx;
     }
 
     function getGameData(uint256 gameId)

@@ -10,9 +10,7 @@ library Constants {
 
     uint256 constant MAX_DELAY = 4 minutes;
     // max number of players in a game.
-    uint256 constant MAX_PLAYERS_LEN = 8;
-    uint256 constant MIN_PLAYERS_LEN = 2;
-    uint256 constant MAX_CARD_SIZE = 8; // in bits.
-    uint256 constant MIN_CARD_SIZE = 2; // in bits.
+    uint256 constant MIN_PLAYERS = 2;
+    uint constant MAX_PLAYERS = 8;
     uint256 constant ALL_OTHER_PLAYERS = type(uint8).max;
 }
