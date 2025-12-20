@@ -1,203 +1,157 @@
+import dotenv from "dotenv";
+
+dotenv.config();
+
+import fastifyJwt from "@fastify/jwt";
 import { TappdClient } from "@phala/dstack-sdk";
 import { toViemAccountSecure } from "@phala/dstack-sdk/viem";
-import { serve } from "bun";
-import { encryptMultipleDeck } from "./encrypt";
+import Fastify from "fastify";
+import shuffleRoutes, { redis } from "./shuffle";
 
-// ---------------------- small job queue ----------------------
-type JobStatus = "queued" | "running" | "done" | "error";
-type Job = {
-	id: string;
-	status: JobStatus;
-	progress: number; // 0..100
-	totalSize: number;
-	contractAddress: string;
-	importerAddress: string;
-	result?: string[]; // hex strings of inputProofs for JSON-safe return
-	error?: string;
-};
+// Simple PORT parsing: default 3000, override via env if valid
+const DEFAULT_PORT = 3000;
+let PORT = DEFAULT_PORT;
 
-const jobs = new Map<string, Job>();
-const queue: string[] = [];
-let queueRunning = false;
-
-function enqueue(job: Job) {
-	jobs.set(job.id, job);
-	queue.push(job.id);
-	void runQueue();
-}
-
-function u8ToHex(u8: Uint8Array): string {
-	return Buffer.from(u8).toString("hex");
-}
-
-async function runQueue() {
-	if (queueRunning) return;
-	queueRunning = true;
-	try {
-		while (queue.length) {
-			const id = queue.shift();
-			if (!id) {
-				break;
-			}
-			const job = jobs.get(id);
-			if (!job) continue;
-
-			try {
-				job.status = "running";
-				job.progress = 0;
-
-				// call encryptMultipleDeck with a progress callback
-				const proofsU8 = await encryptMultipleDeck(
-					job.totalSize,
-					job.contractAddress,
-					job.importerAddress,
-					(produced, expected) => {
-						// progress based on produced/expected
-						job.progress = Math.floor((produced / expected) * 100);
-					},
-				);
-
-				job.result = proofsU8.map(u8ToHex);
-				job.status = "done";
-				job.progress = 100;
-			} catch (e: unknown) {
-				job.status = "error";
-				if (e instanceof Error) {
-					job.error = e.stack ?? e.message;
-				} else {
-					job.error = String(e);
-				}
-				// don't throw; continue processing the rest
-			}
-		}
-	} finally {
-		queueRunning = false;
+if (process.env.PORT) {
+	const parsed = parseInt(process.env.PORT, 10);
+	if (!Number.isNaN(parsed) && parsed > 0) {
+		PORT = parsed;
 	}
 }
 
-// ---------------------- server ----------------------
-const port = Number(process.env.PORT || 3000);
-console.log(`Listening on port ${port}`);
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+	throw new Error("JWT_SECRET env var is required for @fastify/jwt");
+}
 
-serve({
-	port,
-	// NOTE: don't set idleTimeout > 255; default is fine for Bun.
-	routes: {
-		"/": async () => {
-			const client = new TappdClient();
-			const result = await client.info();
-			return new Response(JSON.stringify(result), {
-				headers: { "Content-Type": "application/json" },
-			});
+const fastify = Fastify({ logger: true });
+const tappdClient = new TappdClient();
+
+// Register @fastify/jwt plugin with shared secret
+fastify.register(fastifyJwt, {
+	secret: JWT_SECRET,
+});
+
+// Health check (includes Redis)
+fastify.get("/health", async (_, reply) => {
+	let redisStatus: "up" | "down" = "up";
+	let redisError: string | undefined;
+
+	try {
+		await redis.ping();
+	} catch (err) {
+		redisStatus = "down";
+		redisError = err instanceof Error ? err.message : String(err);
+	}
+
+	const status = redisStatus === "up" ? "ok" : "degraded";
+
+	return reply.send({
+		status,
+		components: {
+			redis: {
+				status: redisStatus,
+				error: redisError,
+			},
 		},
+		timestamp: new Date().toISOString(),
+	});
+});
 
-		"/tdx_quote": async () => {
-			const client = new TappdClient();
-			const result = await client.tdxQuote("test");
-			return new Response(JSON.stringify(result), {
-				headers: { "Content-Type": "application/json" },
-			});
-		},
+// Simple root ping
+fastify.get("/", async () => ({ status: "ok" }));
 
-		"/tdx_quote_raw": async () => {
-			const client = new TappdClient();
-			const result = await client.tdxQuote("Hello DStack!", "raw");
-			return new Response(JSON.stringify(result), {
-				headers: { "Content-Type": "application/json" },
-			});
-		},
+// Demo endpoints (always enabled, but with error handling)
+fastify.get("/tdx_quote", async (_, reply) => {
+	try {
+		const result = await tappdClient.tdxQuote("test");
+		return reply.send(result);
+	} catch (err) {
+		fastify.log.error({ err }, "tdx_quote failed");
+		return reply.code(500).send({ error: "tdx_quote failed" });
+	}
+});
 
-		"/derive_key": async () => {
-			const client = new TappdClient();
-			const result = await client.deriveKey("test");
-			return new Response(JSON.stringify(result), {
-				headers: { "Content-Type": "application/json" },
-			});
-		},
+fastify.get("/tdx_quote_raw", async (_, reply) => {
+	try {
+		const result = await tappdClient.tdxQuote("Hello DStack!", "raw");
+		return reply.send(result);
+	} catch (err) {
+		fastify.log.error({ err }, "tdx_quote_raw failed");
+		return reply.code(500).send({ error: "tdx_quote_raw failed" });
+	}
+});
 
-		"/ethereum": async () => {
-			const client = new TappdClient();
-			const result = await client.deriveKey("ethereum");
-			const viemAccount = toViemAccountSecure(result);
-			return new Response(JSON.stringify({ address: viemAccount.address }), {
-				headers: { "Content-Type": "application/json" },
-			});
-		},
+fastify.get("/derive_key", async (_, reply) => {
+	try {
+		const result = await tappdClient.deriveKey("test");
+		return reply.send(result);
+	} catch (err) {
+		fastify.log.error({ err }, "derive_key failed");
+		return reply.code(500).send({ error: "derive_key failed" });
+	}
+});
 
-		// Start an async shuffle+encrypt job and return a jobId immediately.
-		"/shuffle": async (req) => {
-			// Client can POST JSON { totalSize?, contractAddress?, importerAddress? }
-			let totalSize = 24576;
-			let contractAddress = process.env.CONTRACT_ADDRESS || "";
-			let importerAddress = process.env.IMPORTER_ADDRESS || "";
+fastify.get("/tee_wallet", async (_, reply) => {
+	const WALLET_LABEL = process.env.TEE_WALLET_LABEL;
+	if (!WALLET_LABEL) {
+		return reply
+			.code(500)
+			.send({ error: "TEE_WALLET_LABEL env var is required" });
+	}
+	try {
+		const result = await tappdClient.deriveKey(WALLET_LABEL);
+		const viemAccount = toViemAccountSecure(result);
+		return reply.send({ address: viemAccount.address });
+	} catch (err) {
+		fastify.log.error({ err }, "tee derive_key failed");
+		return reply.code(500).send({ error: "tee derive_key failed" });
+	}
+});
 
-			try {
-				if (req.method === "POST") {
-					const body = await req.json().catch(() => ({}));
-					if (typeof body.totalSize === "number" && body.totalSize > 0) {
-						totalSize = body.totalSize | 0;
-					}
-					if (typeof body.contractAddress === "string") {
-						contractAddress = body.contractAddress;
-					}
-					if (typeof body.importerAddress === "string") {
-						importerAddress = body.importerAddress;
-					}
-				}
-			} catch {
-				// ignore body parse errors; fall back to env/defaults
-			}
+// Route plugin (shuffle enqueue + status)
+fastify.register(shuffleRoutes);
 
-			if (!contractAddress || !importerAddress) {
-				return new Response(
-					JSON.stringify({
-						error:
-							"Missing contract/importer address. Provide via env or POST body.",
-					}),
-					{ status: 400, headers: { "Content-Type": "application/json" } },
-				);
-			}
+// Close Redis with Fastify
+fastify.addHook("onClose", async () => {
+	try {
+		await redis.quit();
+	} catch (err) {
+		fastify.log.error({ err }, "failed to quit redis on close");
+	}
+});
 
-			const id = crypto.randomUUID();
-			const job: Job = {
-				id,
-				status: "queued",
-				progress: 0,
-				totalSize,
-				contractAddress,
-				importerAddress,
-			};
-			enqueue(job);
+let shuttingDown = false;
 
-			return new Response(JSON.stringify({ jobId: id, status: job.status }), {
-				headers: { "Content-Type": "application/json" },
-			});
-		},
+async function start(): Promise<void> {
+	// Sanity-check Redis
+	await redis.ping();
 
-		// Poll job status: /shuffle/status?id=<jobId>
-		"/shuffle/status": async (req) => {
-			const url = new URL(req.url);
-			const id = url.searchParams.get("id") || "";
-			const job = id ? jobs.get(id) : undefined;
+	// IMPORTANT: do NOT start workers here.
+	// Workers are started in a separate process (worker.ts).
 
-			if (!job) {
-				return new Response(JSON.stringify({ error: "Job not found" }), {
-					status: 404,
-					headers: { "Content-Type": "application/json" },
-				});
-			}
+	await fastify.listen({ port: PORT, host: "0.0.0.0" });
 
-			// When done, return results (hex strings) as well
-			return new Response(
-				JSON.stringify({
-					jobId: job.id,
-					status: job.status,
-					progress: job.progress,
-					result: job.status === "done" ? job.result : undefined,
-					error: job.status === "error" ? job.error : undefined,
-				}),
-				{ headers: { "Content-Type": "application/json" } },
-			);
-		},
-	},
+	const shutdown = async () => {
+		if (shuttingDown) return;
+		shuttingDown = true;
+
+		fastify.log.info("Shutting down API server...");
+		try {
+			await fastify.close();
+		} catch (err) {
+			fastify.log.error({ err }, "error while closing fastify");
+		} finally {
+			process.exit(0);
+		}
+	};
+
+	process.on("SIGINT", shutdown);
+	process.on("SIGTERM", shutdown);
+}
+
+start().catch((err) => {
+	// eslint-disable-next-line no-console
+	console.error("Failed to start server:", err);
+	process.exit(1);
 });

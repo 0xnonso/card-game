@@ -4,7 +4,9 @@
 	"type": "module",
 	"private": true,
 	"scripts": {
-		"dev": "bun run --hot src/index.ts"
+		"dev": "bun run --hot src/index.ts",
+		"dev:worker": "bun run --hot src/worker.ts",
+		"issue:jwt": "bun run scripts/issue-jwt.ts"
 	},
 	"devDependencies": {
 		"@types/bun": "latest"
@@ -13,9 +15,15 @@
 		"typescript": "^5"
 	},
 	"dependencies": {
+		"@fastify/jwt": "^10.0.0",
 		"@phala/dstack-sdk": "0.2.1",
 		"@solana/web3.js": "^1.98.0",
-		"@zama-fhe/relayer-sdk": "0.3.0-5",
+		"@stablelib/hmac-drbg": "^1.0.1",
+		"@stablelib/sha256": "^1.0.1",
+		"@zama-fhe/relayer-sdk": "0.3.0-6",
+		"dotenv": "^16.4.5",
+		"fastify": "^5.6.2",
+		"ioredis": "^5.8.2",
 		"viem": "^2.23.5"
 	}
 }
