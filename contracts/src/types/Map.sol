@@ -187,7 +187,7 @@ library PlayerStoreMapLib {
             map := sub(map, and(shr(1, map), 0x5555))
             map := add(and(map, 0x3333), and(shr(2, map), 0x3333))
             map := and(add(map, shr(4, map)), 0x0f0f)
-            count := shr(8, mul(map, 0x0101))
+            count := and(shr(8, mul(map, 0x0101)), 0x1F)
         }
     }
 
@@ -253,18 +253,9 @@ library PlayerStoreMapLib {
             bit = x & ~uint16(x >> 1);
         }
 
-        // De Bruijn: bit → index 0..15
         assembly {
-            // key = ((bit * 0x077CB531) >> 27) & 31
             let key := and(shr(27, mul(bit, 0x077CB531)), 31)
-
-            // LUT (32 bytes) for LS1B index:
-            // [0,1,28,2,29,14,24,3,
-            //  30,22,20,15,25,17,4,8,
-            //  31,27,13,23,21,19,16,7,
-            //  26,12,18,6,11,5,10,9]
             let lut := 0x00011c021d0e18031e16140f191104081f1b0d17151310071a0c12060b050a09
-
             nextIdx := byte(key, lut)
         }
     }
