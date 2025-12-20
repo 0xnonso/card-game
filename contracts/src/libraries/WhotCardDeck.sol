@@ -96,4 +96,70 @@ library WhotCardStandardLibx8 {
     function cardSize() internal pure returns (uint256) {
         return 8;
     }
+
+    function getDefaultDeck() internal pure returns (Card[] memory deck) {
+        Card[] memory WHOT_DECK = new Card[](54);
+        // Circle
+        WHOT_DECK[0] = Card.wrap(1);
+        WHOT_DECK[1] = Card.wrap(2);
+        WHOT_DECK[2] = Card.wrap(3);
+        WHOT_DECK[3] = Card.wrap(4);
+        WHOT_DECK[4] = Card.wrap(5);
+        WHOT_DECK[5] = Card.wrap(7);
+        WHOT_DECK[6] = Card.wrap(8);
+        WHOT_DECK[7] = Card.wrap(10);
+        WHOT_DECK[8] = Card.wrap(11);
+        WHOT_DECK[9] = Card.wrap(12);
+        WHOT_DECK[10] = Card.wrap(13);
+        WHOT_DECK[11] = Card.wrap(14);
+        // Triangle
+        WHOT_DECK[12] = Card.wrap(65);
+        WHOT_DECK[13] = Card.wrap(66);
+        WHOT_DECK[14] = Card.wrap(67);
+        WHOT_DECK[15] = Card.wrap(68);
+        WHOT_DECK[16] = Card.wrap(69);
+        WHOT_DECK[17] = Card.wrap(71);
+        WHOT_DECK[18] = Card.wrap(72);
+        WHOT_DECK[19] = Card.wrap(74);
+        WHOT_DECK[20] = Card.wrap(75);
+        WHOT_DECK[21] = Card.wrap(76);
+        WHOT_DECK[22] = Card.wrap(77);
+        WHOT_DECK[23] = Card.wrap(78);
+        // Cross
+        WHOT_DECK[24] = Card.wrap(33);
+        WHOT_DECK[25] = Card.wrap(34);
+        WHOT_DECK[26] = Card.wrap(35);
+        WHOT_DECK[27] = Card.wrap(37);
+        WHOT_DECK[28] = Card.wrap(39);
+        WHOT_DECK[29] = Card.wrap(42);
+        WHOT_DECK[30] = Card.wrap(43);
+        WHOT_DECK[31] = Card.wrap(45);
+        WHOT_DECK[32] = Card.wrap(46);
+        // Square
+        WHOT_DECK[33] = Card.wrap(97);
+        WHOT_DECK[34] = Card.wrap(98);
+        WHOT_DECK[35] = Card.wrap(99);
+        WHOT_DECK[36] = Card.wrap(101);
+        WHOT_DECK[37] = Card.wrap(103);
+        WHOT_DECK[38] = Card.wrap(106);
+        WHOT_DECK[39] = Card.wrap(107);
+        WHOT_DECK[40] = Card.wrap(109);
+        WHOT_DECK[41] = Card.wrap(110);
+        // Star
+        WHOT_DECK[42] = Card.wrap(129);
+        WHOT_DECK[43] = Card.wrap(130);
+        WHOT_DECK[44] = Card.wrap(131);
+        WHOT_DECK[45] = Card.wrap(132);
+        WHOT_DECK[46] = Card.wrap(133);
+        WHOT_DECK[47] = Card.wrap(135);
+        WHOT_DECK[48] = Card.wrap(136);
+        // Whot
+        WHOT_DECK[49] = Card.wrap(180);
+        WHOT_DECK[50] = Card.wrap(180);
+        WHOT_DECK[51] = Card.wrap(180);
+        WHOT_DECK[52] = Card.wrap(180);
+        WHOT_DECK[53] = Card.wrap(180);
+
+        return WHOT_DECK;
+    }
 }

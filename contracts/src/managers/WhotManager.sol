@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.24;
+
+import {externalEuint256} from "@fhevm/solidity/lib/FHE.sol";
+import "solady/src/utils/LibBytes.sol";
+import "solady/src/utils/LibSort.sol";
+
+import {TrustedShuffleServiceV0 as TSS} from "../TrustedShuffleService.sol";
+import {BaseManager} from "../base/BaseManager.sol";
+import {EInputData, InputType} from "../base/EInputHandler.sol";
+
+import {Constants} from "../helpers/Constants.sol";
+import {ICardEngine} from "../interfaces/ICardEngine.sol";
+import {IRuleset} from "../interfaces/IRuleset.sol";
+import {Action, Card, PlayerScoreData} from "../libraries/CardEngineLib.sol";
+import {WhotCardStandardLibx8 as WhotCard} from "../libraries/WhotCardDeck.sol";
+import {Hook, HookPermissions} from "../types/Hook.sol";
+
+contract WhotManager is BaseManager {
+    TSS internal tss;
+    mapping(uint256 gameId => bool) internal isRouletteGame;
+    mapping(uint256 gameId => address[]) internal winners;
+
+    event GameEnded(uint256 indexed gameId, uint256[] sortedPacedkData);
+
+    constructor(ICardEngine _cardEngine, TSS _tss) BaseManager(_cardEngine) {
+        tss = _tss;
+    }
+
+    function createGame(
+        IRuleset ruleset,
+        uint8 maxPlayers,
+        uint8 handSize,
+        address[] memory proposedPlayers,
+        bool roulette
+    ) external {
+        bytes memory proofData = tss.useInputProof();
+
+        externalEuint256 handle0 = externalEuint256.wrap(bytes32(LibBytes.slice(proofData, 0, 32)));
+        externalEuint256 handle1 = externalEuint256.wrap(bytes32(LibBytes.slice(proofData, 32, 64)));
+
+        ICardEngine.CreateGameParams memory params;
+        params.input0 = EInputData({inputType: InputType._EUINT256, externalInput: abi.encode(handle0)});
+        params.input1 = EInputData({inputType: InputType._EUINT256, externalInput: abi.encode(handle1)});
+        params.inputProof = LibBytes.slice(proofData, 64);
+        params.gameRuleset = ruleset;
+        params.cardBitSize = WhotCard.cardSize();
+        params.cardDeckSize = WhotCard.getDefaultDeck().length;
+        params.maxPlayers = maxPlayers;
+        params.initialHandSize = handSize;
+        params.hookPermissions = HookPermissions.wrap(Hook.ON_START_GAME_FLAG | Hook.ON_FINISH_GAME_FLAG);
+
+        for (uint256 i = 0; i < proposedPlayers.length; i++) {
+            params.proposedPlayers[i] = proposedPlayers[i];
+        }
+
+        uint256 gameId = CARD_ENGINE.createGame(params);
+
+        if (roulette) {
+            isRouletteGame[gameId] = true;
+        }
+    }
+
+    function selectGameWinner(uint256 gameId, PlayerScoreData[] calldata playersData) internal {
+        uint256 dataLength = playersData.length;
+        uint256[] memory packedData = new uint256[](dataLength);
+        for (uint256 i = 0; i < dataLength; i++) {
+            packedData[i] = uint256(playersData[i].score) << 160 | uint256(uint160(playersData[i].playerAddr));
+        }
+        LibSort.insertionSort(packedData);
+        uint256 firstWinner = packedData[0];
+        winners[gameId].push(address(uint160(firstWinner & Constants.ADDRESS_MASK)));
+        for (uint256 i = 1; i < dataLength; i++) {
+            uint256 nextWinner = packedData[i];
+            if ((firstWinner >> 160) != (nextWinner >> 160)) {
+                break;
+            }
+            winners[gameId].push(address(uint160(nextWinner & Constants.ADDRESS_MASK)));
+        }
+        emit GameEnded(gameId, packedData);
+    }
+
+    function onStartGame(uint256 gameId) external view override onlyCardEngine returns (bool) {
+        return isRouletteGame[gameId];
+    }
+
+    function onFinishGame(uint256 gameId, PlayerScoreData[] calldata playersData, uint256[2] calldata)
+        external
+        override
+        onlyCardEngine
+    {
+        selectGameWinner(gameId, playersData);
+    }
+}
