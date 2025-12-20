@@ -10,7 +10,7 @@ import {Standard52CardDeckLibx6} from "../libraries/StandardCardDeck.sol";
 import {Card} from "../types/Card.sol";
 import {PlayerStoreMap} from "../types/Map.sol";
 
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {FHE, euint256} from "@fhevm/solidity/lib/FHE.sol";
 
 // import "hardhat/console.sol";

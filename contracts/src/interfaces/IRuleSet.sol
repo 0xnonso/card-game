@@ -8,23 +8,22 @@ import {euint256} from "@fhevm/solidity/lib/FHE.sol";
 
 interface IRuleset {
     enum EngineOp {
-        None,
-        PickOne,
-        PickTwo,
-        PickThree,
-        PickFour,
-        PickFive,
-        PickSix,
-        PickSeven,
-        PickEight,
-        PickPendingOne,
-        PickPendingTwo,
-        PickPendingThree,
-        PickPendingFour,
-        PickPendingFive,
-        PickPendingSix,
-        PickPendingSeven,
-        PickPendingEight
+        DealOne,
+        DealTwo,
+        DealThree,
+        DealFour,
+        DealFive,
+        DealSix,
+        DealSeven,
+        DealEight,
+        DealPendingOne,
+        DealPendingTwo,
+        DealPendingThree,
+        DealPendingFour,
+        DealPendingFive,
+        DealPendingSix,
+        DealPendingSeven,
+        DealPendingEight
     }
 
     struct Action {
@@ -42,7 +41,7 @@ interface IRuleset {
     }
 
     struct ResolveMoveParams {
-        GameAction gameAction;
+        GameAction action;
         uint8 pendingAction;
         Card card;
         Card callCard;
