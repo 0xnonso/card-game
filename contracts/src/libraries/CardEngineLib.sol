@@ -45,7 +45,7 @@ struct GameData {
     HookPermissions hookPermissions;
     PlayerStoreMap playerStoreMap;
     IRuleset ruleset;
-    DeckMap marketDeckMap;
+    DeckMap marketDeckMap; // a.k.a discard-pile map
     uint8 initialHandSize;
     uint8 playersLeftToJoin;
     euint256[2] marketDeck;
@@ -59,13 +59,13 @@ using CardEngineLib for GameData global;
 using CardEngineLib for PlayerData global;
 
 library CardEngineLib {
-    using FHE for *;
+    using FHE for euint256;
 
     error CardIndexOutOfBounds(uint256);
     error CardIndexIsEmpty(uint256);
 
     uint16 constant MAX_UINT16 = type(uint16).max;
-    uint8 constant MAX_PICK_N = 16;
+    uint8 constant MAX_DEAL_N = 16;
 
     function isPlayerActive(GameData storage $, address playerAddr, PlayerStoreMap playerStoreMap)
         internal
@@ -230,7 +230,7 @@ library CardEngineLib {
         return marketDeckMap;
     }
 
-    function dealPickN(GameData storage $, uint256 currentIdx, DeckMap marketDeckMap, uint256 n)
+    function dealN(GameData storage $, uint256 currentIdx, DeckMap marketDeckMap, uint256 n)
         internal
         returns (DeckMap)
     {
@@ -281,19 +281,19 @@ library CardEngineLib {
         return marketDeckMap;
     }
 
-    function dealPendingPickN(GameData storage $, uint256 playerIdx, uint256 pickN) internal {
-        uint8 pendingPick = $.players[playerIdx].pendingAction;
-        uint8 newPendingPick = pendingPick + uint8(pickN);
-        if (newPendingPick > MAX_PICK_N) {
-            newPendingPick = MAX_PICK_N;
+    function dealPendingN(GameData storage $, uint256 playerIdx, uint256 n) internal {
+        uint8 pendingDeal = $.players[playerIdx].pendingAction;
+        uint8 newPendingDeal = pendingDeal + uint8(n);
+        if (newPendingDeal > MAX_DEAL_N) {
+            newPendingDeal = MAX_DEAL_N;
         }
-        $.players[playerIdx].pendingAction = newPendingPick;
+        $.players[playerIdx].pendingAction = newPendingDeal;
     }
 
     function dealGeneralMarket(
         GameData storage $,
         uint256 currentIdx,
-        uint256 pickN,
+        uint256 n,
         DeckMap marketDeckMap,
         PlayerStoreMap playerStoreMap
     ) internal returns (DeckMap) {
@@ -308,7 +308,7 @@ library CardEngineLib {
                 PlayerData memory player = $.players[activeIdx];
                 bool allow0;
                 bool allowBothIdx;
-                for (uint256 j = 0; j < pickN; j++) {
+                for (uint256 j = 0; j < n; j++) {
                     if (marketDeckMap.isMapNotEmpty()) {
                         uint256 cardIdx;
                         (marketDeckMap, player.deckMap, cardIdx) = marketDeckMap.deal(player.deckMap);
@@ -349,17 +349,14 @@ library CardEngineLib {
         return marketDeckMap;
     }
 
-    function dealPendingGeneralMarket(
-        GameData storage $,
-        uint256 currentIdx,
-        uint256 pickN,
-        PlayerStoreMap playerStoreMap
-    ) internal {
+    function dealPendingGeneralMarket(GameData storage $, uint256 currentIdx, uint256 n, PlayerStoreMap playerStoreMap)
+        internal
+    {
         uint256[] memory activePlayers = playerStoreMap.getNonEmptyIdxs();
         for (uint256 i = 0; i < activePlayers.length; i++) {
             uint256 activeIdx = activePlayers[i];
             if (activeIdx != currentIdx) {
-                dealPendingPickN($, i, pickN);
+                dealPendingN($, i, n);
             }
         }
     }
@@ -371,14 +368,15 @@ library CardEngineLib {
         DeckMap playerDeckMap,
         uint8 pendingAction
     ) internal returns (DeckMap, DeckMap) {
+        PlayerData storage p = $.players[currentIdx];
         if (pendingAction > 0) {
             for (uint8 i = 0; i < pendingAction; i++) {
                 if (marketDeckMap.isMapNotEmpty()) {
                     (marketDeckMap, playerDeckMap,) = marketDeckMap.deal(playerDeckMap);
                 }
             }
-            $.players[currentIdx].pendingAction = 0;
-            $.players[currentIdx].deckMap = playerDeckMap;
+            p.pendingAction = 0;
+            p.deckMap = playerDeckMap;
         }
         return (marketDeckMap, playerDeckMap);
     }

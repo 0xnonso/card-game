@@ -14,7 +14,7 @@ abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
 
     function hasSpecialMoves(uint256, /*gameId*/ address, /*player*/ Card, /*playingCard*/ Action /*action*/ )
         external
-        pure
+        view
         virtual
         returns (bool)
     {
@@ -51,6 +51,7 @@ abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
         external
         virtual
         onlyCardEngine
+        returns (bool)
     {
         revert HookNotSupported();
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
-import {SepoliaConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
+import {ZamaEthereumConfig} from "@fhevm/solidity/config/ZamaConfig.sol";
 import {
     FHE,
     euint128,
@@ -30,15 +30,10 @@ enum InputType {
 
 struct EInputData {
     InputType inputType;
-    externalEuint8 inputEuint8;
-    externalEuint16 inputEuint16;
-    externalEuint32 inputEuint32;
-    externalEuint64 inputEuint64;
-    externalEuint128 inputEuint128;
-    externalEuint256 inputEuint256;
+    bytes externalInput;
 }
 
-abstract contract EInputHandler is SepoliaConfig {
+abstract contract EInputHandler is ZamaEthereumConfig {
     error EInputData_inputTypeCannotBeEmpty();
 
     function _handleInputData(EInputData calldata einput0, EInputData calldata einput1, bytes calldata inputProof)
@@ -51,8 +46,8 @@ abstract contract EInputHandler is SepoliaConfig {
         out[0] = _verifyExternalInputData(einput0, inputProof);
         out[1] = _verifyExternalInputData(einput1, inputProof);
 
-        FHE.allowThis(out[0]);
-        FHE.allowThis(out[1]);
+        _fheAllowThis(out[0]);
+        _fheAllowThis(out[1]);
     }
 
     function _verifyExternalInputData(EInputData calldata einputData, bytes calldata inputProof)
@@ -60,27 +55,31 @@ abstract contract EInputHandler is SepoliaConfig {
         returns (euint256 out)
     {
         if (einputData.inputType == InputType._EUINT8) {
-            euint8 value = FHE.fromExternal(einputData.inputEuint8, inputProof);
-            out = FHE.asEuint256(value);
+            euint8 value = FHE.fromExternal(abi.decode(einputData.externalInput, (externalEuint8)), inputProof);
+            return FHE.asEuint256(value);
         }
         if (einputData.inputType == InputType._EUINT16) {
-            euint16 value = FHE.fromExternal(einputData.inputEuint16, inputProof);
-            out = FHE.asEuint256(value);
+            euint16 value = FHE.fromExternal(abi.decode(einputData.externalInput, (externalEuint16)), inputProof);
+            return FHE.asEuint256(value);
         }
         if (einputData.inputType == InputType._EUINT32) {
-            euint32 value = FHE.fromExternal(einputData.inputEuint32, inputProof);
-            out = FHE.asEuint256(value);
+            euint32 value = FHE.fromExternal(abi.decode(einputData.externalInput, (externalEuint32)), inputProof);
+            return FHE.asEuint256(value);
         }
         if (einputData.inputType == InputType._EUINT64) {
-            euint64 value = FHE.fromExternal(einputData.inputEuint64, inputProof);
-            out = FHE.asEuint256(value);
+            euint64 value = FHE.fromExternal(abi.decode(einputData.externalInput, (externalEuint64)), inputProof);
+            return FHE.asEuint256(value);
         }
         if (einputData.inputType == InputType._EUINT128) {
-            euint128 value = FHE.fromExternal(einputData.inputEuint128, inputProof);
-            out = FHE.asEuint256(value);
+            euint128 value = FHE.fromExternal(abi.decode(einputData.externalInput, (externalEuint128)), inputProof);
+            return FHE.asEuint256(value);
         }
         if (einputData.inputType == InputType._EUINT256) {
-            out = FHE.fromExternal(einputData.inputEuint256, inputProof);
+            return FHE.fromExternal(abi.decode(einputData.externalInput, (externalEuint256)), inputProof);
         }
+    }
+
+    function _fheAllowThis(euint256 value) internal {
+        FHE.allowThis(value);
     }
 }

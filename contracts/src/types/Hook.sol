@@ -69,9 +69,9 @@ library Hook {
         uint256 gameId,
         address player,
         bool forfeited
-    ) internal {
+    ) internal returns (bool endGame) {
         if (permissions.hasPermission(ON_PLAYER_EXIT_FLAG)) {
-            hook.onPlayerExit(gameId, player, forfeited);
+            endGame = hook.onPlayerExit(gameId, player, forfeited);
         }
     }
 

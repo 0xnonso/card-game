@@ -21,3 +21,6 @@ docs/
 .env
 
 fhevmTemp
+
+ir.sol
+*.txt
