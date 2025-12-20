@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
+import {Card} from "./types/Card.sol";
 import {Ownable} from "solady/src/auth/Ownable.sol";
 import {SSTORE2} from "solady/src/utils/SSTORE2.sol";
 
@@ -8,6 +9,7 @@ contract TrustedShuffleServiceV0 is Ownable {
     uint256 constant HANDLES_PER_PROOF = 8;
 
     address immutable TSS_AGENT;
+    bytes32 immutable DEFAULT_DECK_HASH;
 
     /// @dev computed from keccak256(bytes("TrustedShuffleService.v0.Identifier"))
     bytes32 constant INPUT_PROOF_ID_HASH = 0x33d498b8afe92ab958356853549971d23806d0c1a084c55e48fecb624b5ef06d;
@@ -21,6 +23,7 @@ contract TrustedShuffleServiceV0 is Ownable {
     struct PointerMeta {
         uint32 totalHandles;
         uint16 proofSize;
+        bool doubleHandle;
     }
 
     ProofCursor internal proofCursor;
@@ -30,15 +33,17 @@ contract TrustedShuffleServiceV0 is Ownable {
     error OnlyTssAgent();
     error OnlyApprovedImporter();
     error InputProofsDepleted();
-    error InvalidInputProofBlob();
-    error InvalidProofPayload();
+    error InvalidDeck();
+    error InvalidProofData();
+    error InvalidInputProofPayload();
 
     event ImporterApprovalUpdated(address indexed importer, bool approved);
-    event InputProofStored(address indexed ptr, uint256 proofsStored, uint256 proofSize);
+    event InputProofStored(address indexed ptr, uint256 proofsStored, uint256 proofSize, bool doubleHandle);
     event InputProofUsed(address indexed ptr, uint256 proofIndex);
 
-    constructor(address tssAgent) {
+    constructor(address tssAgent, Card[] memory defaultDeck) {
         TSS_AGENT = tssAgent;
+        DEFAULT_DECK_HASH = keccak256(abi.encode(defaultDeck));
         _initializeOwner(msg.sender);
     }
 
@@ -50,20 +55,6 @@ contract TrustedShuffleServiceV0 is Ownable {
     modifier onlyImporter() {
         if (!approvedImporters[msg.sender]) revert OnlyApprovedImporter();
         _;
-    }
-
-    function storeInputProofs(bytes calldata proofs, uint256 numProofs, uint256 proofSize) external onlyTssAgent {
-        if (proofs.length == 0 || (proofs.length != (numProofs * proofSize))) {
-            revert InvalidProofPayload();
-        }
-        ProofCursor storage cursor = proofCursor;
-        uint256 ptrIndex = cursor.totalNumPtrs;
-        address ptr = SSTORE2.writeDeterministic(proofs, deriveSalt(ptrIndex));
-        pointerMeta[ptrIndex] =
-            PointerMeta({totalHandles: uint32(HANDLES_PER_PROOF * numProofs), proofSize: uint16(proofSize)});
-        cursor.totalNumPtrs++;
-
-        emit InputProofStored(ptr, numProofs, proofSize);
     }
 
     function useInputProof() external onlyImporter returns (bytes memory handlesWithProof) {
@@ -89,22 +80,53 @@ contract TrustedShuffleServiceV0 is Ownable {
         //   Total = 2 + NUM_HANDLES * 32 + (65 * numSignersKMS) + extraData.length
         bytes memory proof = SSTORE2.read(ptr, start, start + proofSize);
 
-        if (proof.length != proofSize) revert InvalidInputProofBlob();
+        if (proof.length != proofSize) revert InvalidProofData();
 
-        handlesWithProof = new bytes(proofSize + 0x40);
+        uint8 numHandlesToUse = ptrMeta.doubleHandle ? 2 : 1;
+        uint8 handleSize = 0x20 * numHandlesToUse;
+        handlesWithProof = new bytes(proofSize + handleSize);
         uint256 handleIndex = cursor.usedHandles % HANDLES_PER_PROOF;
         uint256 handleOffset = 0x02 + (handleIndex * 0x20);
         assembly {
             let dest := add(handlesWithProof, 0x20)
             let dataPtr := add(proof, 0x20)
             let handlePos := add(dataPtr, handleOffset)
-            mcopy(dest, handlePos, 0x40)
-            mcopy(add(dest, 0x40), dataPtr, proofSize)
+            mcopy(dest, handlePos, handleSize)
+            mcopy(add(dest, handleSize), dataPtr, proofSize)
         }
-        cursor.usedHandles += 2;
+        cursor.usedHandles += numHandlesToUse;
         proofCursor = cursor;
 
         emit InputProofUsed(ptr, proofIndex);
+    }
+
+    // There is no way to check that the proofs being stored are valid shuffles of the
+    // default deck, so this function relies on trust in the TSS agent. The deckHash
+    // parameter allows verification that the proofs correspond to the expected deck.
+    function storeInputProofs(
+        bytes calldata proofs,
+        bytes32 deckHash,
+        uint256 numProofs,
+        uint256 proofSize,
+        bool doubleHandle
+    ) external onlyTssAgent {
+        if (deckHash != DEFAULT_DECK_HASH) {
+            revert InvalidDeck();
+        }
+        if (proofs.length == 0 || (proofs.length != (numProofs * proofSize))) {
+            revert InvalidInputProofPayload();
+        }
+        ProofCursor storage cursor = proofCursor;
+        uint256 ptrIndex = cursor.totalNumPtrs;
+        address ptr = SSTORE2.writeDeterministic(proofs, deriveSalt(ptrIndex));
+        pointerMeta[ptrIndex] = PointerMeta({
+            totalHandles: uint32(HANDLES_PER_PROOF * numProofs),
+            proofSize: uint16(proofSize),
+            doubleHandle: doubleHandle
+        });
+        cursor.totalNumPtrs++;
+
+        emit InputProofStored(ptr, numProofs, proofSize, doubleHandle);
     }
 
     function deriveSalt(uint256 index) internal view returns (bytes32 salt) {
