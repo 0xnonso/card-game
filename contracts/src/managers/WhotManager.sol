@@ -33,7 +33,7 @@ contract WhotManager is BaseManager {
         uint8 handSize,
         address[] memory proposedPlayers,
         bool roulette
-    ) external {
+    ) external returns (uint256 gameId) {
         bytes memory proofData = tss.useInputProof();
 
         externalEuint256 handle0 = externalEuint256.wrap(bytes32(LibBytes.slice(proofData, 0, 32)));
@@ -49,12 +49,9 @@ contract WhotManager is BaseManager {
         params.maxPlayers = maxPlayers;
         params.initialHandSize = handSize;
         params.hookPermissions = HookPermissions.wrap(Hook.ON_START_GAME_FLAG | Hook.ON_FINISH_GAME_FLAG);
+        params.proposedPlayers = proposedPlayers;
 
-        for (uint256 i = 0; i < proposedPlayers.length; i++) {
-            params.proposedPlayers[i] = proposedPlayers[i];
-        }
-
-        uint256 gameId = CARD_ENGINE.createGame(params);
+        gameId = CARD_ENGINE.createGame(params);
 
         if (roulette) {
             isRouletteGame[gameId] = true;
