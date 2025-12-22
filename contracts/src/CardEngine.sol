@@ -17,6 +17,8 @@ import {Card} from "./types/Card.sol";
 import {Hook, HookPermissions} from "./types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "./types/Map.sol";
 
+import "hardhat/console.sol";
+
 contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard, Extsload {
     using ConditionalsLib for *;
     using Hook for IManagerHook;
@@ -37,12 +39,13 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     error PlayersLimitExceeded();
     error PlayersLimitNotMet();
     error CannotBootOutPlayer(address player);
-    error InvalidGameAction(Action action);
     error PlayerAlreadyCommittedAction();
     error NoCommittedAction();
     error InvalidPlayerIndex();
     error CardSizeNotSupported();
     error CardDeckSizeTooSmall();
+    error ZeroInitialHandSize();
+    error ZeroCardDeckSize();
 
     // Events
     event PlayerForfeited(uint256 indexed gameId, uint256 playerIndex);
@@ -96,7 +99,8 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
             game.isProposedPlayer[proposedPlayer] = true;
         }
 
-        require(params.initialHandSize != 0);
+        require(params.initialHandSize != 0, ZeroInitialHandSize());
+        require(params.cardDeckSize > 0, ZeroCardDeckSize());
 
         if (!params.gameRuleset.supportsCardSize(params.cardBitSize)) revert CardSizeNotSupported();
         game.ruleset = params.gameRuleset;
@@ -106,6 +110,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         if ((params.initialHandSize * maxPlayers) > marketDeckMap.len()) {
             revert CardDeckSizeTooSmall();
         }
+
         game.marketDeckMap = marketDeckMap;
         game.initialHandSize = params.initialHandSize; // set initial hand size.
         game.numProposedPlayers = numProposedPlayers;
@@ -136,19 +141,17 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
         address playerToAdd = msg.sender;
         PlayerStoreMap playerStoreMap = game.playerStoreMap;
-        uint8 playersLeftToJoin = game.playersLeftToJoin;
         address gameCreator = game.gameCreator;
         // check if player is already in game.
         if (game.isPlayerActive(playerToAdd, playerStoreMap)) revert PlayerAlreadyInGame();
         // if player is not a proposed player and `proposed players` is not set, then check if max players limit has been reached.
         // if proposed players is set (i.e proposed players array > 0), then check if player is in the proposed players list.
         bool isProposedPlayer =
-            game.numProposedPlayers != 0 ? game.isProposedPlayer[playerToAdd] : playersLeftToJoin != 0;
+            game.numProposedPlayers != 0 ? game.isProposedPlayer[playerToAdd] : game.playersLeftToJoin != 0;
 
         if (isProposedPlayer) {
             playerStoreMap = game.addPlayer(playerToAdd, playerStoreMap);
-            playersLeftToJoin--;
-            game.playersLeftToJoin = playersLeftToJoin;
+            game.playersLeftToJoin--;
             game.playerStoreMap = playerStoreMap;
         } else {
             revert NotProposedPlayer(playerToAdd);
@@ -198,6 +201,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         emit PlayersDealtInitialHand(gameId, handSize);
 
         game.marketDeckMap = marketDeckMap;
+        game.lastMoveTimestamp = uint40(block.timestamp);
 
         emit GameStarted(gameId);
 
@@ -504,7 +508,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
         // apply effect against player if any.
         for (uint256 i = 0; i < rActions.length; i++) {
-            uint8 op = uint8(rActions[i].op);
+            uint8 op = uint8(rActions[i].op) + 1;
             bool dealPending = op > 8;
             uint8 againstPlayerIdx = rActions[i].againstPlayerIndex;
 

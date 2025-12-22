@@ -30,6 +30,38 @@ const PLAYER_DATA_OFFSET = 4n;
 const ADDRESS_MASK = (1n << 160n) - 1n;
 const U64_MASK = (1n << 64n) - 1n;
 
+export type HookPermissionsConfig = {
+	onStartGame?: boolean;
+	onJoinGame?: boolean;
+	onExecuteMove?: boolean;
+	onFinishGame?: boolean;
+	onPlayerExit?: boolean;
+	hasSpecialMoves?: boolean;
+	canBootOut?: boolean;
+};
+
+export const buildHookPermissions = (config: HookPermissionsConfig = {}): bigint => {
+	const flags = {
+		onStartGame: 1n << 0n,
+		onJoinGame: 1n << 1n,
+		onExecuteMove: 1n << 2n,
+		onFinishGame: 1n << 3n,
+		onPlayerExit: 1n << 4n,
+		hasSpecialMoves: 1n << 5n,
+		canBootOut: 1n << 6n,
+	};
+
+	let mask = 0n;
+	if (config.onStartGame) mask |= flags.onStartGame;
+	if (config.onJoinGame) mask |= flags.onJoinGame;
+	if (config.onExecuteMove) mask |= flags.onExecuteMove;
+	if (config.onFinishGame) mask |= flags.onFinishGame;
+	if (config.onPlayerExit) mask |= flags.onPlayerExit;
+	if (config.hasSpecialMoves) mask |= flags.hasSpecialMoves;
+	if (config.canBootOut) mask |= flags.canBootOut;
+	return mask;
+};
+
 export const extractMoveCommitted = (
 	receipt: TransactionReceipt | null | undefined,
 	iface: Interface,
@@ -141,6 +173,7 @@ export const readGameData = async (cardEngine: CardEngine, gameId: bigint) => {
 		status: loadBits(v0, 176n, 0xffn),
 		playersLeftToJoin: loadBits(v1, 232n, 0xffn),
 		hookPermissions: loadBits(v0, 232n, 0xffn),
+		playerStoreMap: loadBits(v0, 240n, 0xffn),
 		marketDeckMap: loadBits(v1, 160n, U64_MASK),
 		initialHandSize: loadBits(v1, 224n, 0xffn),
 		ruleset: toAddress(loadBits(v1, 0n, ADDRESS_MASK)),
@@ -172,9 +205,9 @@ export const readPlayerData = async (
 	return {
 		playerAddr: toAddress(loadBits(v0, 0n, ADDRESS_MASK)),
 		deckMap: loadBits(v0, 160n, U64_MASK),
-		pendingAction: loadBits(v0, 168n, 0xffn),
-		score: loadBits(v0, 176n, 0xffffn),
-		forfeited: loadBits(v0, 184n, 0xffn) !== 0n,
+		pendingAction: loadBits(v0, 224n, 0xffn),
+		score: loadBits(v0, 232n, 0xffffn),
+		forfeited: loadBits(v0, 248n, 0xffn) !== 0n,
 		hand0: v1,
 		hand1: v2,
 	};
@@ -274,7 +307,7 @@ export const createGameWithDefaults = async (
 
 	const params = {
 		gameRuleset: overrides.gameRuleset ?? (await ctx.ruleset.getAddress()),
-		cardBitSize: overrides.cardBitSize ?? 8,
+		cardBitSize: overrides.cardBitSize ?? 0,
 		cardDeckSize: overrides.cardDeckSize ?? 54,
 		maxPlayers: overrides.maxPlayers ?? 3,
 		initialHandSize: overrides.initialHandSize ?? 2,
@@ -307,7 +340,7 @@ export const createManagedGame = async (
 	);
 	const params = {
 		gameRuleset: await ctx.ruleset.getAddress(),
-		cardBitSize: 8,
+		cardBitSize: 0,
 		cardDeckSize: 54,
 		maxPlayers: 3,
 		initialHandSize: 2,
@@ -316,7 +349,7 @@ export const createManagedGame = async (
 			ctx.player1.address,
 			ctx.player2.address,
 		],
-		hookPermissions: overrides.hookPermissions ?? 0xffn,
+		hookPermissions: overrides.hookPermissions ?? 0n,
 		input0: encrypted.input0,
 		input1: encrypted.input1,
 		inputProof: encrypted.inputProof,
@@ -327,24 +360,26 @@ export const createManagedGame = async (
 	return { gameId, params };
 };
 
-export const setupManagedGame = async (
-	ctx: EngineCtx,
-	options: { allowBootOut?: boolean; hookPermissions?: bigint } = {},
-) => {
+export const deployMockManager = async (ctx: EngineCtx): Promise<MockManager> => {
 	const managerFactory = await ethers.getContractFactory("MockManager");
 	const manager = (await managerFactory
 		.connect(ctx.alice)
 		.deploy(await ctx.cardEngine.getAddress())) as MockManager;
 	await manager.waitForDeployment();
-	if (options.allowBootOut) {
-		await manager.connect(ctx.alice).setBootOutPermission(true);
-	}
+	return manager;
+};
+
+export const setupManagedGame = async (
+	ctx: EngineCtx,
+	options: { manager: MockManager; hookPermissions?: bigint },
+) => {
+	const manager = options.manager;
 	const { gameId } = await createManagedGame(ctx, manager, {
-		hookPermissions: options.hookPermissions ?? 0xffn,
+		hookPermissions: options.hookPermissions ?? 0n,
 	});
 	await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
 	await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
 	await ctx.cardEngine.connect(ctx.player2).joinGame(gameId);
 	await ctx.cardEngine.connect(ctx.alice).startGame(gameId);
-	return { gameId, manager };
+	return { gameId };
 };

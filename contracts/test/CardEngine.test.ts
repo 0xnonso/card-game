@@ -16,6 +16,8 @@ import {
 	readGameData,
 	readPlayerData,
 	setupManagedGame,
+	buildHookPermissions,
+  deployMockManager,
 } from "./helpers/engine";
 
 const ACTION = {
@@ -126,13 +128,31 @@ describe("Engine", () => {
 			await expect(
 				createGameWithDefaults(ctx, {
 					proposedPlayers: [],
-					maxPlayers: 4,
-					initialHandSize: 20,
+					maxPlayers: 5,
+					initialHandSize: 11,
 				}),
 			).to.be.revertedWithCustomError(ctx.cardEngine, "CardDeckSizeTooSmall");
 		});
 
-		it("tracks playersLeftToJoin from proposed players length", async () => {
+    it("ensure max players allowed to join cannot exceed cap", async () => {
+			const ctx = await deployEngineFixture();
+			await expect(
+				createGameWithDefaults(ctx, {
+					proposedPlayers: [],
+					maxPlayers: 16,
+				}),
+			).to.be.revertedWithCustomError(ctx.cardEngine, "PlayersLimitExceeded");
+      await expect(
+				createGameWithDefaults(ctx, {
+					proposedPlayers: [],
+					maxPlayers: 1,
+				}),
+			).to.be.revertedWithCustomError(ctx.cardEngine, "PlayersLimitNotMet");
+		});
+	});
+
+	describe("Join Game", () => {
+    it("allows proposed players to join and properly tracks playersLeftToJoin", async () => {
 			const ctx = await deployEngineFixture();
 			const proposed = [
 				ctx.player0.address,
@@ -142,43 +162,27 @@ describe("Engine", () => {
 			const { gameId } = await createGameWithDefaults(ctx, {
 				proposedPlayers: proposed,
 			});
-			const { playersLeftToJoin } = await readGameData(ctx.cardEngine, gameId);
-			expect(playersLeftToJoin).to.equal(proposed.length);
-		});
-	});
+			let gameData = await readGameData(ctx.cardEngine, gameId);
+			expect(gameData.playersLeftToJoin).to.equal(proposed.length);
 
-	describe("Join Game", () => {
-		it("allows proposed players to join and decrements players left to join", async () => {
-			const ctx = await deployEngineFixture();
-			const { gameId } = await createGameWithDefaults(ctx);
+			await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
+			gameData = await readGameData(ctx.cardEngine, gameId);
+      let playerData = await readPlayerData(ctx.cardEngine, gameId, 0n);
+			expect(gameData.playersLeftToJoin).to.equal(proposed.length - 1);
+      expect(playerData.playerAddr).to.equal(ctx.player0.address);
 
-			await expect(ctx.cardEngine.connect(ctx.player0).joinGame(gameId))
-				.to.emit(ctx.cardEngine, "PlayerJoined")
-				.withArgs(gameId, ctx.player0.address);
 
-			const { playersLeftToJoin } = await readGameData(ctx.cardEngine, gameId);
-			const playerData = await readPlayerData(ctx.cardEngine, gameId, 0n);
+      await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
+			gameData = await readGameData(ctx.cardEngine, gameId);
+      playerData = await readPlayerData(ctx.cardEngine, gameId, 1n);
+			expect(gameData.playersLeftToJoin).to.equal(proposed.length - 2);
+      expect(playerData.playerAddr).to.equal(ctx.player1.address);
 
-			expect(playersLeftToJoin).to.equal(2n);
-			expect(playerData.playerAddr).to.equal(ctx.player0.address);
-		});
-
-		it("allows the game creator to join the game they created", async () => {
-			const ctx = await deployEngineFixture();
-			const { gameId } = await createGameWithDefaults(ctx, {
-				proposedPlayers: [],
-				maxPlayers: 2,
-			});
-
-			await expect(ctx.cardEngine.connect(ctx.alice).joinGame(gameId))
-				.to.emit(ctx.cardEngine, "PlayerJoined")
-				.withArgs(gameId, ctx.alice.address);
-
-			const { playersLeftToJoin } = await readGameData(ctx.cardEngine, gameId);
-			const playerData = await readPlayerData(ctx.cardEngine, gameId, 0n);
-
-			expect(playerData.playerAddr).to.equal(ctx.alice.address);
-			expect(playersLeftToJoin).to.equal(1n);
+      await ctx.cardEngine.connect(ctx.player2).joinGame(gameId);
+			gameData = await readGameData(ctx.cardEngine, gameId);
+      playerData = await readPlayerData(ctx.cardEngine, gameId, 2n);
+			expect(gameData.playersLeftToJoin).to.equal(proposed.length - 3);
+      expect(playerData.playerAddr).to.equal(ctx.player2.address);
 		});
 
 		it("rejects addresses that are not proposed players", async () => {
@@ -191,16 +195,13 @@ describe("Engine", () => {
 				.withArgs(stranger.address);
 		});
 
-		it("allows every proposed player to join and tracks their indices", async () => {
+		it("prevents players from joining a game more than once", async () => {
 			const ctx = await deployEngineFixture();
 			const { gameId } = await createGameWithDefaults(ctx);
 
 			await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
-			await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
-			await ctx.cardEngine.connect(ctx.player2).joinGame(gameId);
-
-			const { playersLeftToJoin } = await readGameData(ctx.cardEngine, gameId);
-			expect(playersLeftToJoin).to.equal(0n);
+      await expect(ctx.cardEngine.connect(ctx.player0).joinGame(gameId))
+				.to.be.revertedWithCustomError(ctx.cardEngine, "PlayerAlreadyInGame")
 		});
 
 		it("allows non-proposed players to join open games until capacity is reached", async () => {
@@ -262,14 +263,14 @@ describe("Engine", () => {
 	});
 
 	describe("Start Game", () => {
-		it("allows the game creator to start once all proposed players join", async () => {
+		it("should emit GameStarted with gameId", async () => {
 			const ctx = await deployEngineFixture();
 			const { gameId } = await createGameWithDefaults(ctx);
 			await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
 			await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
-			await ctx.cardEngine.connect(ctx.player2).joinGame(gameId);
+      await ctx.cardEngine.connect(ctx.player2).joinGame(gameId);
 
-			await expect(ctx.cardEngine.connect(ctx.alice).startGame(gameId))
+			await expect(ctx.cardEngine.startGame(gameId))
 				.to.emit(ctx.cardEngine, "GameStarted")
 				.withArgs(gameId);
 
@@ -280,7 +281,26 @@ describe("Engine", () => {
 
 			expect(status).to.equal(1n);
 			expect(playersLeftToJoin).to.equal(0n);
-			expect(playerTurnIdx).to.be.lessThan(3n);
+			expect(playerTurnIdx).to.equal(0n);
+		});
+
+		it("should call `onStartGameHook`", async () => {
+			const ctx = await deployEngineFixture();
+			const manager = await deployMockManager(ctx);
+			await manager.enableOnStartGame();
+
+			const {gameId} = await setupManagedGame(ctx, {
+				manager,
+				hookPermissions: buildHookPermissions({ onStartGame: true }),
+			});
+
+      const { status } = await readGameData(
+				ctx.cardEngine,
+				gameId,
+			);
+
+			expect(await manager.onStartGameFlip()).to.equal(true);
+      expect(status).to.equal(2n);
 		});
 
 		it("prevents non-creators from starting before all players join", async () => {
@@ -333,6 +353,59 @@ describe("Engine", () => {
 		});
 	});
 	describe("Execute Move", () => {
+    it("can only execute Play/Defend action when a move is committed", async () => {
+			const ctx = await deployEngineFixture();
+			const gameId = await startDefaultGame(ctx);
+			const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(
+				ctx,
+				gameId,
+			);
+
+			const targetCardIdx = cardIndexes[0];
+			const targetCardValue = ctx.deckArray[targetCardIdx];
+
+			// Commit + decrypt to get a valid proof, then clear commitment.
+			const commitTx = await ctx.cardEngine
+				.connect(signer)
+				.commitMove(gameId, targetCardIdx);
+			const commitReceipt = await commitTx.wait();
+			const { encryptedCard } = extractMoveCommitted(
+				commitReceipt,
+				ctx.cardEngine.interface,
+			);
+
+			const decrypted = await fhevm.publicDecrypt([encryptedCard]);
+			const clearCard = decrypted.clearValues[encryptedCard as `0x${string}`];
+			expect(clearCard).to.equal(targetCardValue);
+			const decryptionProof: `0x${string}` = decrypted.decryptionProof;
+			const abiEncodedClearValues: `0x${string}` =
+				decrypted.abiEncodedClearValues;
+			const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+				["bytes", "bytes32", "bytes", "uint8"],
+				[decryptionProof, encryptedCard, abiEncodedClearValues, targetCardIdx],
+			);
+
+			await expect(
+				ctx.cardEngine
+					.connect(signer)
+					.executeMove(
+						gameId,
+						ACTION.Draw,
+						proofData,
+						extraDataForCard(targetCardValue, ctx.deckArray),
+					),
+			).to.be.revertedWithCustomError(
+				ctx.cardEngine,
+				"PlayerAlreadyCommittedAction",
+			);
+
+			const { playerTurnIdx: postTurn } = await readGameData(
+				ctx.cardEngine,
+				gameId,
+			);
+			expect(postTurn).to.equal(currentIndex);
+		});
+
 		it("reverts when executing a Play action without a committed move", async () => {
 			const ctx = await deployEngineFixture();
 			const gameId = await startDefaultGame(ctx);
@@ -472,7 +545,7 @@ describe("Engine", () => {
 				[decryptionProof, encryptedCard, abiEncodedClearValues, targetCardIdx],
 			);
 
-			const allPlayers = [ctx.player0, ctx.player1, ctx.player2];
+      const allPlayers = [ctx.player0, ctx.player1, ctx.player2];
 			const nextPlayer =
 				allPlayers[Number(currentIndex + 1n) % allPlayers.length];
 
@@ -553,6 +626,27 @@ describe("Engine", () => {
 			const cardsAfter = deckIndexes(playerAfter.deckMap).length;
 			expect(cardsAfter).to.equal(cardsBefore - 1);
 		});
+
+		it("draws a card and updates the deck map", async () => {
+			const ctx = await deployEngineFixture();
+			const gameId = await startDefaultGame(ctx);
+			const { currentIndex, signer } = await currentPlayerCtx(ctx, gameId);
+
+			const before = await readPlayerData(
+				ctx.cardEngine,
+				gameId,
+				currentIndex,
+			);
+			const beforeCount = deckIndexes(before.deckMap).length;
+
+			await ctx.cardEngine
+				.connect(signer)
+				.executeMove(gameId, ACTION.Draw, "0x", "0x");
+
+			const after = await readPlayerData(ctx.cardEngine, gameId, currentIndex);
+			const afterCount = deckIndexes(after.deckMap).length;
+			expect(afterCount).to.equal(beforeCount + 1);
+		});
 	});
 
 	describe("Boot Out / Forfeit", () => {
@@ -578,7 +672,10 @@ describe("Engine", () => {
 
 		it("prevents booting out an idle player when the manager denies", async () => {
 			const ctx = await deployEngineFixture();
-			const { gameId } = await setupManagedGame(ctx, { allowBootOut: false });
+			const { gameId } = await setupManagedGame(ctx, {
+				manager: await deployMockManager(ctx),
+				hookPermissions: buildHookPermissions({ canBootOut: true }),
+			});
 
 			await time.increase(300);
 
@@ -589,7 +686,12 @@ describe("Engine", () => {
 
 		it("prevents a booted player from executing moves", async () => {
 			const ctx = await deployEngineFixture();
-			const { gameId } = await setupManagedGame(ctx, { allowBootOut: true });
+      const manager = await deployMockManager(ctx);
+			const { gameId } = await setupManagedGame(ctx, {
+				manager: manager,
+				hookPermissions: buildHookPermissions({ canBootOut: true }),
+			});
+			await manager.connect(ctx.alice).setBootOutPermission(true);
 
 			const { signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
 			const targetCardIdx = cardIndexes[0];
@@ -616,11 +718,7 @@ describe("Engine", () => {
 				[decryptionProof, encryptedCard, abiEncodedClearValues, targetCardIdx],
 			);
 
-			await ctx.cardEngine.connect(signer).breakCommitment(gameId);
-
-			await time.increase(300);
-
-			await ctx.cardEngine.connect(ctx.alice).bootOut(gameId, 0);
+			await ctx.cardEngine.bootOut(gameId, 0);
 
 			await expect(
 				ctx.cardEngine
@@ -636,11 +734,14 @@ describe("Engine", () => {
 				.withArgs(ctx.player0.address);
 		});
 
-		it("prevents booting out players with an unfulfilled commitment", async () => {
+		it("prevents booting out second to last player if there is an unfulfilled commitment", async () => {
 			const ctx = await deployEngineFixture();
-			const { gameId, manager } = await setupManagedGame(ctx, {
-				allowBootOut: true,
+      const manager = await deployMockManager(ctx);
+			const { gameId } = await setupManagedGame(ctx, {
+				manager: manager,
+				hookPermissions: buildHookPermissions({ canBootOut: true }),
 			});
+			await manager.setBootOutPermission(true);
 			const { signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
 
 			const targetCardIdx = cardIndexes[0];
@@ -648,9 +749,6 @@ describe("Engine", () => {
 				.connect(signer)
 				.commitMove(gameId, targetCardIdx);
 			await commitTx.wait();
-			await (manager as MockManager)
-				.connect(ctx.alice)
-				.setBootOutPermission(true);
 
 			// Reduce players to 2 without clearing the commitment (forfeit a non-current player).
 			await ctx.cardEngine.connect(ctx.player2).forfeit(gameId);
@@ -658,7 +756,7 @@ describe("Engine", () => {
 			// Booting out a player here would end the game (only one left), which is forbidden
 			// while there's an outstanding commitment.
 			await expect(
-				ctx.cardEngine.connect(ctx.alice).bootOut(gameId, 1),
+				ctx.cardEngine.bootOut(gameId, 1),
 			).to.be.revertedWithCustomError(
 				ctx.cardEngine,
 				"PlayerAlreadyCommittedAction",
@@ -667,7 +765,7 @@ describe("Engine", () => {
 	});
 
 	describe("End Game (self-relayed decryption)", () => {
-		it("accepts a valid market deck decryption proof after game ends", async () => {
+		it("should update players score data after game ends", async () => {
 			const ctx = await deployEngineFixture();
 			const gameId = await startDefaultGame(ctx);
 
@@ -689,8 +787,18 @@ describe("Engine", () => {
 				[decryptionProof, [deckHandles[0], deckHandles[1]], decryptedResult],
 			);
 
-			await expect(ctx.cardEngine.connect(ctx.alice).endGame(gameId, proofData))
-				.to.not.be.reverted;
+			await ctx.cardEngine.endGame(gameId, proofData)
+
+      const player0 = await readPlayerData(ctx.cardEngine, gameId, 0n);
+      const player1 = await readPlayerData(ctx.cardEngine, gameId, 1n);
+      const player2 = await readPlayerData(ctx.cardEngine, gameId, 2n);
+
+      expect(player0.score).to.be.equal(65535n);
+      expect (player0.forfeited).to.be.equal(true);
+      expect(player1.score).to.be.equal(65535n);
+      expect (player1.forfeited).to.be.equal(true);
+      expect(player2.score).to.be.lessThan(65535n);
+      expect (player2.forfeited).to.be.equal(false);
 		});
 
 		it("reverts when the market deck decryption proof was computed with a different handle order", async () => {

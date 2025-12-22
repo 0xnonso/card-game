@@ -82,10 +82,6 @@ library CardEngineLib {
         return $.playerIndex[player];
     }
 
-    function setPlayerScoreToMin(GameData storage $, uint256 index) internal {
-        $.players[index].score = MAX_UINT16;
-    }
-
     function calculateAndSetPlayerScore(
         GameData storage $,
         uint256 playerIndex,
