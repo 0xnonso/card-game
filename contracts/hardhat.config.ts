@@ -46,6 +46,7 @@ const config: HardhatUserConfig = {
 	exposed: {
 		imports: true,
 		initializers: true,
+		exclude: ["contracts/src/helpers/CardEngineView.sol"],
 	},
 };
 
