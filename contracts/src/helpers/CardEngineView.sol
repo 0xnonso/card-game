@@ -11,7 +11,7 @@ import {Card} from "../types/Card.sol";
 import {HookPermissions} from "../types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "../types/Map.sol";
 
-abstract contract CardEngineView {
+contract CardEngineView {
     IExtsload public immutable CARD_ENGINE;
 
     uint256 internal constant GAME_DATA_SLOT = 2;
@@ -21,7 +21,7 @@ abstract contract CardEngineView {
         CARD_ENGINE = IExtsload(cardEngine);
     }
 
-    function getGameDataSlot(uint256 gameId) internal pure returns (uint256 slot) {
+    function computeGameDataSlot(uint256 gameId) internal pure returns (uint256 slot) {
         assembly {
             mstore(0x00, gameId)
             mstore(0x20, GAME_DATA_SLOT)
@@ -29,64 +29,75 @@ abstract contract CardEngineView {
         }
     }
 
-    function getPlayerDataSlot(uint256 gameId, uint256 playerIndex) internal view returns (uint256 slot) {
-        uint256 gameSlot = getGameDataSlot(gameId);
+    function computePlayerDataSlot(uint256 gameId, uint256 playerIndex) internal pure returns (uint256 slot) {
+        uint256 gameSlot = computeGameDataSlot(gameId);
         assembly {
             mstore(0x00, add(gameSlot, PLAYER_DATA_OFFSET))
-            slot := add(keccak256(0x00, 0x20), playerIndex)
+            slot := add(keccak256(0x00, 0x20), mul(playerIndex, 0x03))
         }
     }
 
-    function getPlayerData(uint256 gameId, uint256 playerIndex) internal view returns (PlayerData memory player) {
-        uint256 slot = getPlayerDataSlot(gameId, playerIndex);
+    function getPlayerData(uint256 gameId, uint256 playerIndex)
+        external
+        view
+        returns (
+            address playerAddr,
+            DeckMap playerDeckMap,
+            uint8 pendingAction,
+            uint16 playerScore,
+            bool forfeited,
+            euint256[2] memory playerHand
+        )
+    {
+        uint256 slot = computePlayerDataSlot(gameId, playerIndex);
         uint256[] memory values = CARD_ENGINE.extsload(slot, 3);
 
         CacheValue value0 = CacheValue.wrap(values[0]);
 
-        player.playerAddr = value0.loadAddress(PDP.PLAYER_ADDRESS);
-        player.deckMap = DeckMap.wrap(value0.loadU64(PDP.DECKMAP));
-        player.pendingAction = value0.loadU8(PDP.PENDING_ACTION);
-        player.score = value0.loadU16(PDP.SCORE);
-        player.forfeited = value0.loadU8(PDP.FORFEITED) != 0;
-        player.hand[0] = euint256.wrap(bytes32(values[1]));
-        player.hand[1] = euint256.wrap(bytes32(values[2]));
+        playerAddr = value0.loadAddress(PDP.PLAYER_ADDRESS);
+        playerDeckMap = DeckMap.wrap(value0.loadU64(PDP.DECKMAP));
+        pendingAction = value0.loadU8(PDP.PENDING_ACTION);
+        playerScore = value0.loadU16(PDP.SCORE);
+        forfeited = value0.loadU8(PDP.FORFEITED) != 0;
+        playerHand[0] = euint256.wrap(bytes32(values[1]));
+        playerHand[1] = euint256.wrap(bytes32(values[2]));
     }
 
-    // function getGameData(uint256 gameId)
-    //     internal
-    //     view
-    //     returns (
-    //         address gameCreator,
-    //         Card callCard,
-    //         uint8 playerTurnIdx,
-    //         GameStatus status,
-    //         uint40 lastMoveTimestamp,
-    //         uint8 playersLeftToJoin,
-    //         HookPermissions hookPermissions,
-    //         PlayerStoreMap playerStoreMap,
-    //         IRuleset ruleset,
-    //         DeckMap marketDeckMap,
-    //         uint8 initialHandSize
-    //     )
-    // {
-    //     uint256 slot = getGameDataSlot(gameId);
-    //     uint256[] memory values = CARD_ENGINE.extsload(slot, 2);
+    function getGameData(uint256 gameId)
+        external
+        view
+        returns (
+            address gameCreator,
+            Card callCard,
+            uint8 playerTurnIdx,
+            GameStatus status,
+            uint40 lastMoveTimestamp,
+            uint8 playersLeftToJoin,
+            HookPermissions hookPermissions,
+            PlayerStoreMap playerStoreMap,
+            IRuleset ruleset,
+            DeckMap marketDeckMap,
+            uint8 initialHandSize
+        )
+    {
+        uint256 slot = computeGameDataSlot(gameId);
+        uint256[] memory values = CARD_ENGINE.extsload(slot, 2);
 
-    //     CacheValue value = CacheValue.wrap(values[0]);
+        CacheValue value = CacheValue.wrap(values[0]);
 
-    //     gameCreator = value.loadAddress(GDP.GAME_CREATOR);
-    //     callCard = Card.wrap(value.loadU8(GDP.CALL_CARD));
-    //     playerTurnIdx = value.loadU8(GDP.PLAYER_TURN_INDEX);
-    //     status = GameStatus(value.loadU8(GDP.STATUS));
-    //     lastMoveTimestamp = value.loadU40(GDP.LAST_MOVE_TIMESTAMP);
-    //     playersLeftToJoin = value.loadU8(GDP.PLAYERS_LEFT_TO_JOIN);
-    //     hookPermissions = HookPermissions.wrap(value.loadU8(GDP.HOOK_PERMISSIONS));
-    //     playerStoreMap = PlayerStoreMap.wrap(value.loadU8(GDP.PLAYER_STORE_MAP));
+        gameCreator = value.loadAddress(GDP.GAME_CREATOR);
+        callCard = Card.wrap(value.loadU8(GDP.CALL_CARD));
+        playerTurnIdx = value.loadU8(GDP.PLAYER_TURN_INDEX);
+        status = GameStatus(value.loadU8(GDP.STATUS));
+        lastMoveTimestamp = value.loadU40(GDP.LAST_MOVE_TIMESTAMP);
+        hookPermissions = HookPermissions.wrap(value.loadU8(GDP.HOOK_PERMISSIONS));
+        playerStoreMap = PlayerStoreMap.wrap(value.loadU8(GDP.PLAYER_STORE_MAP));
 
-    //     value = CacheValue.wrap(values[1]);
+        value = CacheValue.wrap(values[1]);
 
-    //     ruleset = IRuleset(value.loadAddress(GDP.RULESET));
-    //     marketDeckMap = DeckMap.wrap(value.loadU64(GDP.MARKET_DECK_MAP));
-    //     initialHandSize = value.loadU8(GDP.INITIAL_HAND_SIZE);
-    // }
+        ruleset = IRuleset(value.loadAddress(GDP.RULESET));
+        marketDeckMap = DeckMap.wrap(value.loadU64(GDP.MARKET_DECK_MAP));
+        initialHandSize = value.loadU8(GDP.INITIAL_HAND_SIZE);
+        playersLeftToJoin = value.loadU8(GDP.PLAYERS_LEFT_TO_JOIN);
+    }
 }
