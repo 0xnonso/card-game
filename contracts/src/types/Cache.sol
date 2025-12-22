@@ -74,7 +74,7 @@ library GameDataPositions {
 library PlayerDataPositions {
     uint8 internal constant PLAYER_ADDRESS = 0;
     uint8 internal constant DECKMAP = 160;
-    uint8 internal constant PENDING_ACTION = 168;
-    uint8 internal constant SCORE = 176;
-    uint8 internal constant FORFEITED = 184;
+    uint8 internal constant PENDING_ACTION = 224;
+    uint8 internal constant SCORE = 232;
+    uint8 internal constant FORFEITED = 248;
 }
