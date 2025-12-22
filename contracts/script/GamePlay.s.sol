@@ -9,19 +9,17 @@ import {IRuleset} from "../src/interfaces/IRuleset.sol";
 import {WhotManager} from "../src/managers/WhotManager.sol";
 
 contract GamePlay is Script {
-
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         uint256 p0Key = vm.envUint("PLAYER_0_KEY");
         uint256 p1Key = vm.envUint("PLAYER_1_KEY");
         address cardEngine = vm.envAddress("CARD_ENGINE");
-        uint256 gameId = 1;
 
         address payable p0 = payable(vm.addr(p0Key));
         address payable p1 = payable(vm.addr(p1Key));
 
-        address managerAddr = 0x93a710492e2044871000C64720E234153118af22;
-        address rulesetAddr = 0x8A9623f01f31Db35F3159C5D041F01d95bBf4Ea5;
+        address managerAddr = 0x7066Ec9d108d3c6F45d50f53EbBeE1188d058BbB;
+        address rulesetAddr = 0x02707bBB7229721e841Ebeecb95943eef340b2Be;
 
         console.log("Player0:", p0);
         console.log("Player1:", p1);
@@ -32,11 +30,14 @@ contract GamePlay is Script {
 
         vm.startBroadcast(pk);
 
-        address[] memory empty;
+        address[] memory empty = new address[](2);
+        empty[0] = p0;
+        empty[1] = p1;
         uint8 maxPlayers = 2;
         uint8 handSize = 5;
         bool roulette = true;
-        WhotManager(managerAddr).createGame(IRuleset(rulesetAddr), maxPlayers, handSize, empty, roulette);
+        uint256 gameId =
+            WhotManager(managerAddr).createGame(IRuleset(rulesetAddr), maxPlayers, handSize, empty, roulette);
         vm.stopBroadcast();
 
         // Player 0 joins

@@ -7,6 +7,7 @@ import {console} from "forge-std/console.sol";
 import {CardEngine} from "../src/CardEngine.sol";
 import {TrustedShuffleServiceV0} from "../src/TrustedShuffleService.sol";
 
+import {CardEngineView} from "../src/helpers/CardEngineView.sol";
 import {MinimalRNG} from "../src/helpers/MinimalRNG.sol";
 import {ICardEngine} from "../src/interfaces/ICardEngine.sol";
 import {WhotCardStandardLibx8} from "../src/libraries/WhotCardDeck.sol";
@@ -31,12 +32,14 @@ contract DeployScript is Script {
         WhotManager manager = new WhotManager(ICardEngine(cardEngine), tss);
         tss.updateImporterApproval(address(manager), true);
         tss.updateImporterApproval(vm.addr(deployerKey), true);
+        CardEngineView viewContract = new CardEngineView(address(cardEngine));
 
         console.log("MinimalRNG deployed at", address(rng));
         console.log("CardEngine deployed at", address(cardEngine));
         console.log("TrustedShuffleServiceV0 deployed at", address(tss));
         console.log("WhotRuleset deployed at", address(ruleset));
         console.log("WhotManager deployed at", address(manager));
+        console.log("CardEngineView deployed at", address(viewContract));
 
         vm.stopBroadcast();
     }
