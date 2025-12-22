@@ -4,6 +4,9 @@ pragma solidity ^0.8.24;
 import {IRuleset} from "../../src/interfaces/IRuleset.sol";
 import {Card} from "../../src/types/Card.sol";
 import {PlayerStoreMap} from "../../src/types/Map.sol";
+
+import {Action as GameAction} from "../libraries/CardEngineLib.sol";
+import {ConditionalsLib} from "../libraries/ConditionalsLib.sol";
 import {WhotCardStandardLibx8 as WhotCard} from "../libraries/WhotCardDeck.sol";
 
 /**
@@ -11,6 +14,7 @@ import {WhotCardStandardLibx8 as WhotCard} from "../libraries/WhotCardDeck.sol";
  * game rules, and simply advances to the next player each move.
  */
 contract MockRuleset is IRuleset {
+    using ConditionalsLib for *;
     using WhotCard for Card;
 
     address public immutable cardEngine;
@@ -33,7 +37,11 @@ contract MockRuleset is IRuleset {
         effect.actions = new Action[](0);
         effect.callCard = params.card;
         effect.nextPlayerIndex = params.playerStoreMap.getNextIndex(params.currentPlayerIndex);
-        // no toggles or special handling
+        if (params.action.eqs(GameAction.Draw)) {
+            effect.actions = new Action[](1);
+            effect.actions[0].op = EngineOp.DealOne;
+            effect.actions[0].againstPlayerIndex = params.currentPlayerIndex;
+        }
     }
 
     function afterResolveMove(ResolveMoveParams calldata) external view onlyCardEngine {}

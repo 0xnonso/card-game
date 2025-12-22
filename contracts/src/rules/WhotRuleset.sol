@@ -28,10 +28,11 @@ contract WhotRuleset is BaseModifier, IRuleset {
     function resolveMove(ResolveMoveParams memory params) public view onlyCardEngine returns (Effect memory effect) {
         Action[] memory actionsToExec = new Action[](1);
         bool noActionFlag;
-        effect.callCard = params.card;
         uint8 nextTurn = params.playerStoreMap.getNextIndex(params.currentPlayerIndex);
         effect.nextPlayerIndex = nextTurn;
+        effect.callCard = params.callCard;
         if (params.action.eqs(GameAction.Play)) {
+            effect.callCard = params.card;
             if (!params.callCard.matchWhot(params.card)) {
                 revert PlayerCardDoesNotMatchCallCard();
             }
