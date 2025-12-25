@@ -1,27 +1,41 @@
-# Phala Cloud Bun + TypeScript Starter
+# TEE Shuffle/Proof Worker (Bun + TypeScript)
 
-[![](https://cloud.phala.network/deploy-button.svg)](https://cloud.phala.network/templates/bun-starter)
+Trusted shuffle/encryption service that:
+- Accepts shuffle jobs via Fastify HTTP API (JWT bearer auth).
+- Queues jobs in Redis.
+- Worker shuffles/encrypts decks using TEE-backed randomness and produces proofs.
+- Can call `TrustedShuffleService.storeInputProofs` on-chain with the generated proof bytes.
 
-This is a template for developing a [Bun](https://bun.sh/)-based app with boilerplate code targeting deployment on [Phala Cloud](https://cloud.phala.network/) and [DStack](https://github.com/dstack-TEE/dstack/). It includes the SDK by default to make integration with TEE features easier. This repo also includes a default Dockerfile and docker-compose.yml for deployment.
+## Setup
 
-## Development
-
-First, you need to clone this repo:
-
-```shell
-git clone --depth 1 https://github.com/Phala-Network/phala-cloud-bun-starter.git
+```bash
+cd tee
+bun install
+cp .env.example .env  # fill in all required URLs/keys
 ```
 
-Next, let's initialize the development environment:
+### Local dev
+- Start HTTP API: `bun run dev`
+- Start worker (separate process): `bun run dev:worker`
+- Lint: `bun run lint`
 
-```shell
-bun i
-cp env.example .env
-```
+### Redis
+The service requires Redis. Provide the URL via `REDIS_URL` in `.env`.
 
-We also need to download the DStack simulator:
+### Shuffle API (Fastify)
+- `POST /shuffle` (auth required): enqueue a shuffle job.
+- `GET /shuffle/:id`: fetch job status/result.
 
-```shell
+### Scripts
+- `scripts/issue-jwt.ts`: issue bearer/JWT tokens for API access.
+- `scripts/redis-latency.ts`: simple Redis latency checker.
+
+### Running the TEE stack locally (sequential)
+
+1. **Start Redis** (required for queueing).
+2. **Run the Tappd simulator** (for attestation/key-derivation demos):
+
+```bash
 # Mac
 wget https://github.com/Leechael/tappd-simulator/releases/download/v0.1.4/tappd-simulator-0.1.4-aarch64-apple-darwin.tgz
 tar -xvf tappd-simulator-0.1.4-aarch64-apple-darwin.tgz
@@ -35,32 +49,14 @@ cd tappd-simulator-0.1.4-x86_64-linux-musl
 ./tappd-simulator -l unix:/tmp/tappd.sock
 ```
 
-Once the simulator is running, you need to open another terminal to start your Bun development server:
+3. **Start the API**: `bun run dev`
+4. **Start the worker** (separate terminal): `bun run dev:worker`
 
-```shell
-bun run dev
-```
+5. **Call endpoints**:
+   - `/tdx_quote` and `/tdx_quote_raw` for attestation quotes
+   - `/derive_key`, `/ethereum` for TEE-held keys
+   - `/shuffle` to exercise the shuffle pipeline
 
-By default, the Bun development server will listen on port 3000. Open http://127.0.0.1:3000/tdx_quote in your browser to get the quote with reportdata `test`.
-
-This repo also includes code snippets for the following common use cases:
-
-- `/tdx_quote`: The `reportdata` is `test` and generates the quote for attestation report via `tdxQuote` API.
-- `/tdx_quote_raw`: The `reportdata` is `Hello DStack!` and generates the quote for attestation report. The difference from `/tdx_quote` is that you can see the raw text `Hello DStack!` in [Attestation Explorer](https://proof.t16z.com/).
-- `/derive_key`: Basic example of the `deriveKey` API.
-- `/ethereum`: Using the `deriveKey` API to generate a deterministic wallet for Ethereum, a.k.a. a wallet held by the TEE instance.
-- `/solana`: Using the `deriveKey` API to generate a deterministic wallet for Solana, a.k.a. a wallet held by the TEE instance.
-- `/info`: Returns the TCB Info of the hosted CVM.
-
-## Build
-
-You need to build the image and push it to DockerHub for deployment. The following instructions are for publishing to a public registry via DockerHub:
-
-```shell
-sudo docker build . -t leechael/phala-cloud-bun-starter
-sudo docker push leechael/phala-cloud-bun-starter
-```
-
-## Deploy
-
-You can copy and paste the `docker-compose.yml` file from this repo to deploy to Phala Cloud, follow the [tutorial](https://docs.phala.network/phala-cloud/create-cvm/create-with-docker-compose) in the Phala Docs.
+### Notes
+- Uses `@zama-fhe/relayer-sdk` + `@phala/dstack-sdk` for TEE/relayer integration.
+- Expects network/RPC URLs and relayer addresses in `.env`.
