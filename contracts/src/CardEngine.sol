@@ -17,8 +17,6 @@ import {Card} from "./types/Card.sol";
 import {Hook, HookPermissions} from "./types/Hook.sol";
 import {DeckMap, PlayerStoreMap} from "./types/Map.sol";
 
-import "hardhat/console.sol";
-
 contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard, Extsload {
     using ConditionalsLib for *;
     using Hook for IManagerHook;

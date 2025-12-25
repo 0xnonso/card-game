@@ -20,11 +20,15 @@ contract WhotRuleset is BaseModifier, IRuleset {
     error PlayerCardDoesNotMatchCallCard();
     error InvalidAction();
     error DefenseNotEnabled();
+    error ResolvePendingAction();
+    error NoActionToDefend();
+    error CardDoesNotMatchPickTwo();
 
     constructor(address _rng, ICardEngine _cardEngine) BaseModifier(_cardEngine) {
         rng = IRNG(_rng);
     }
 
+    /// https://en.wikipedia.org/wiki/Whot!
     function resolveMove(ResolveMoveParams memory params) public view onlyCardEngine returns (Effect memory effect) {
         Action[] memory actionsToExec = new Action[](1);
         bool noActionFlag;
@@ -35,6 +39,9 @@ contract WhotRuleset is BaseModifier, IRuleset {
             effect.callCard = params.card;
             if (!params.callCard.matchWhot(params.card)) {
                 revert PlayerCardDoesNotMatchCallCard();
+            }
+            if (params.pendingAction > 0) {
+                revert ResolvePendingAction();
             }
 
             if (params.card.isPickTwo()) {
@@ -61,20 +68,29 @@ contract WhotRuleset is BaseModifier, IRuleset {
                 noActionFlag = true;
                 (WhotCard.CardShape wishShape) = abi.decode(params.extraData, (WhotCard.CardShape));
                 effect.callCard = WhotCard.makeWhotWish(wishShape);
-                effect.nextPlayerIndex = params.currentPlayerIndex;
+            } else {
+                noActionFlag = true;
             }
         } else if (params.action.eqs(GameAction.Defend)) {
             if (!params.isSpecial) {
                 revert DefenseNotEnabled();
             }
+            if (params.pendingAction == 0) {
+                revert NoActionToDefend();
+            }
+            if (!(params.callCard.number() != 2 && params.card.number() != 2)) {
+                revert CardDoesNotMatchPickTwo();
+            }
 
             if (params.pendingAction == 4) {
                 actionsToExec[0].op = EngineOp.DealTwo;
                 actionsToExec[0].againstPlayerIndex = params.currentPlayerIndex;
+            } else {
+                noActionFlag = true;
             }
         } else if (params.action.eqs(GameAction.Draw)) {
             if (params.pendingAction > 0) {
-                actionsToExec[0].op = EngineOp(params.pendingAction % 8);
+                actionsToExec[0].op = EngineOp((params.pendingAction - 1) % 8);
             } else {
                 actionsToExec[0].op = EngineOp.DealOne;
             }
