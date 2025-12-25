@@ -12,8 +12,6 @@ A modular onchain crazy-eights-style card game engine with pluggable rulesets.
 - WhotManager: `0x93D751197A987CaB6d649056b0E008772d01Cc89`
 - CardEngineView: `0x86575b469bDbE0139f90773e962860a842C5b8Dc`
 
-Whot frontend: https://github.com/0xPr0f/card-game-interface
-
 ## Getting started
 
 Prerequisites: [Bun](https://bun.sh/) installed.
