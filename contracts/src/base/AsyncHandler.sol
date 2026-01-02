@@ -18,10 +18,7 @@ abstract contract AsyncHandler {
     {
         // decryption proof, encrypted card, decryption result, cardIndex
         (decryptionProof, encryptedCard, decryptionResult, cardIndex) = abi.decode(proof, (bytes, euint8, bytes, uint8));
-        bytes32 _hash = keccak256(abi.encode(encryptedCard, cardIndex));
-        if (commitment[gameId] != _hash) {
-            revert AsyncHandler_InvalidCommitmentHash();
-        }
+        _validateHash(gameId, _hash(abi.encode(encryptedCard, cardIndex)));
         bytes32[] memory cts = new bytes32[](1);
         cts[0] = FHE.toBytes32(encryptedCard);
         FHE.checkSignatures(cts, decryptionResult, decryptionProof);
@@ -33,20 +30,22 @@ abstract contract AsyncHandler {
     {
         // decryption proof, encrypted deck, decryption result
         (decryptionProof, encryptedDeck, decryptionResult) = abi.decode(proof, (bytes, euint256[2], bytes));
-        bytes32 _hash = keccak256(abi.encode(encryptedDeck));
-        if (commitment[gameId] != _hash) {
-            revert AsyncHandler_InvalidCommitmentHash();
-        }
+        _validateHash(gameId, _hash(abi.encode(encryptedDeck)));
         bytes32[] memory cts = new bytes32[](2);
         cts[0] = FHE.toBytes32(encryptedDeck[0]);
         cts[1] = FHE.toBytes32(encryptedDeck[1]);
         FHE.checkSignatures(cts, decryptionResult, decryptionProof);
     }
 
+    function _validateHash(uint256 gameId, bytes32 _hash_) internal view {
+        if (commitment[gameId] != _hash_) {
+            revert AsyncHandler_InvalidCommitmentHash();
+        }
+    }
+
     function _commitMove(uint256 gameId, euint8 cardToCommit, uint256 cardIndex) internal {
         FHE.makePubliclyDecryptable(cardToCommit);
-        bytes32 _hash = keccak256(abi.encode(cardToCommit, cardIndex));
-        commitment[gameId] = _hash;
+        commitment[gameId] = _hash(abi.encode(cardToCommit, cardIndex));
 
         emit MoveCommitted(gameId, cardToCommit, cardIndex);
     }
@@ -54,8 +53,7 @@ abstract contract AsyncHandler {
     function _commitMarketDeck(uint256 gameId, euint256[2] memory marketDeck) internal {
         FHE.makePubliclyDecryptable(marketDeck[0]);
         FHE.makePubliclyDecryptable(marketDeck[1]);
-        bytes32 _hash = keccak256(abi.encode(marketDeck));
-        commitment[gameId] = _hash;
+        commitment[gameId] = _hash(abi.encode(marketDeck));
 
         emit MarketDeckCommitted(gameId, marketDeck);
     }
@@ -68,5 +66,9 @@ abstract contract AsyncHandler {
 
     function _hasCommittedAction(uint256 gameId) internal view returns (bool) {
         return commitment[gameId] != 0;
+    }
+
+    function _hash(bytes memory encodedData) internal pure returns (bytes32) {
+        return keccak256(encodedData);
     }
 }

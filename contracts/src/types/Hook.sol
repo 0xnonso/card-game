@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IManagerHook, IManagerView} from "../interfaces/IManager.sol";
+import {IRuleset} from "../interfaces/IRuleset.sol";
 import {Action, PlayerScoreData} from "../libraries/CardEngineLib.sol";
 import {Card} from "../types/Card.sol";
 import {DeckMap} from "../types/Map.sol";
@@ -55,11 +56,12 @@ library Hook {
         IManagerHook hook,
         HookPermissions permissions,
         uint256 gameId,
+        IRuleset gameRuleset,
         PlayerScoreData[] memory playersData,
         uint256[2] memory marketDeck
     ) internal {
         if (permissions.hasPermission(ON_FINISH_GAME_FLAG)) {
-            hook.onFinishGame(gameId, playersData, marketDeck);
+            hook.onFinishGame(gameId, gameRuleset, playersData, marketDeck);
         }
     }
 

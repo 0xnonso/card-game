@@ -54,10 +54,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     event GameStarted(uint256 indexed gameId);
     event GameEnded(uint256 indexed gameId);
     event PlayersDealtInitialHand(uint256 indexed gameId, uint8 handSize);
-    event PlayerDealtPending(uint256 indexed gameId, uint256 playerIndex, uint8 pendingN);
-    event PlayerDealt(uint256 indexed gameId, uint256 playerIndex, uint8 n);
-    event PlayersDealtGeneralPending(uint256 indexed gameId, uint8 pendingN);
-    event PlayersDealtGeneral(uint256 indexed gameId, uint8 n);
+    event PlayersDealt(uint256 indexed gameId, bool isPending, uint256 playerIndex, uint8 n);
 
     constructor() AsyncHandler() {}
 
@@ -115,6 +112,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         game.playersLeftToJoin = maxPlayers; // initially, players left to join is max players.
         game.gameCreator = msg.sender; // set `gameCreator` as msg.sender.
         game.hookPermissions = params.hookPermissions; // set initial hand size.
+        game.recycleMarketDeck = params.recycleMarketDeck;
 
         // initialize market deck.
         euint256[2] memory marketDeck = _handleInputData(params.input0, params.input1, params.inputProof);
@@ -182,7 +180,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
             // forgefmt: disable-next-item
             canStartGame := or(iszero(playersLeftToJoin), and(eq(caller(), gameCreator), gt(joined, 0x01)))
         }
-        // if game can start, all players are dealt an initial hand, and each player's score is set to the minimum value of 65,535.
+        // if game can start, all players are dealt an initial hand.
         if (!canStartGame) {
             revert CannotStartGame();
         }
@@ -279,9 +277,10 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
         if (action.eqsOr(Action.Play, Action.Defend)) {
             {
-                (,, bytes memory decryptionResult, uint8 cardIndex) = __validateMoveDecryption(gameId, proofData);
+                (, euint8 encryptedCard, bytes memory decryptionResult, uint8 cardIndex) =
+                    __validateMoveDecryption(gameId, proofData);
                 moveParams.card = abi.decode(decryptionResult, (Card));
-                (player.deckMap, player.hand) = game.updatePlayerHand(player, playerTurnIdx, cardIndex);
+                (player.deckMap, player.hand) = game.updatePlayerHand(player, playerTurnIdx, encryptedCard, cardIndex);
             }
             // check if player is eligible for a special move. this is false by default if no hook is set.
             if (ruleset.isSpecialMoveCard(moveParams.card)) {
@@ -324,7 +323,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
 
         ensureGameStarted(game.status);
 
-        uint256 playerIdx = game.getPlayerIndex(msg.sender);
+        uint256 playerIdx = game.playerIndex[msg.sender];
         address playerAddr = game.players[playerIdx].playerAddr;
         PlayerStoreMap playerStoreMap = game.playerStoreMap;
 
@@ -387,24 +386,23 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         uint256[2] memory marketDeck = abi.decode(decryptionResult, (uint256[2]));
 
         DeckMap marketDeckMap = game.marketDeckMap;
-        IRuleset ruleset = game.ruleset;
 
         uint256 playersLen = game.players.length;
         PlayerScoreData[] memory playersData = new PlayerScoreData[](playersLen);
         for (uint256 i = 0; i < playersLen; i++) {
             PlayerData memory player = game.players[i];
-            uint16 playerScore;
+            Card[] memory playerHand;
             if (!player.forfeited) {
                 (marketDeckMap, player.deckMap) =
                     game.resolvePending(i, marketDeckMap, player.deckMap, player.pendingAction);
-                playerScore = game.calculateAndSetPlayerScore(i, marketDeckMap, player.deckMap, marketDeck, ruleset);
+                // calculate player hand.
+                playerHand = CardEngineLib.getPlayerHand(player.deckMap, marketDeckMap, marketDeck);
             }
-            playersData[i] =
-                PlayerScoreData({playerAddr: player.playerAddr, deckMap: player.deckMap, score: playerScore});
+            playersData[i] = PlayerScoreData({playerAddr: player.playerAddr, deckMap: player.deckMap, hand: playerHand});
         }
         game.marketDeckMap = marketDeckMap;
         // call `onFinishGame` hook with players score data.
-        IManagerHook(game.gameCreator).onFinishGame(game.hookPermissions, gameId, playersData, marketDeck);
+        IManagerHook(game.gameCreator).onFinishGame(game.hookPermissions, gameId, game.ruleset, playersData, marketDeck);
     }
 
     /// Checks if core conditions to end the game are met and ends the game if so.
@@ -523,30 +521,23 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
                     op = op - 8;
                     // if `dealPending` is true, then the against player is dealt the pending deal.
                     game.dealPendingN(againstPlayerIdx, op);
-                    emit PlayerDealtPending(gameId, againstPlayerIdx, op);
                 } else {
                     // otherwise, the against player is dealt the normal deal.
-                    if (op != 1) {
-                        marketDeckMap = game.dealN(againstPlayerIdx, marketDeckMap, op);
-                    } else {
-                        marketDeckMap = game.deal(againstPlayerIdx, marketDeckMap);
-                    }
-                    emit PlayerDealt(gameId, againstPlayerIdx, op);
+                    marketDeckMap = game.dealN(againstPlayerIdx, marketDeckMap, op);
                 }
             } else {
                 if (dealPending) {
                     op = op - 8;
                     // if `dealPending` is true, then all players are dealt the pending general market.
                     game.dealPendingGeneralMarket(moveParams.currentPlayerIndex, op, moveParams.playerStoreMap);
-                    emit PlayersDealtGeneralPending(gameId, op);
                 } else {
                     // otherwise, all players are dealt the normal(non-pending) general market.
                     marketDeckMap = game.dealGeneralMarket(
                         moveParams.currentPlayerIndex, op, marketDeckMap, moveParams.playerStoreMap
                     );
-                    emit PlayersDealtGeneral(gameId, op);
                 }
             }
+            emit PlayersDealt(gameId, dealPending, againstPlayerIdx, op);
             game.marketDeckMap = marketDeckMap;
         }
 

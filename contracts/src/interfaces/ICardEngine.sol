@@ -22,6 +22,7 @@ interface ICardEngine {
         uint8 maxPlayers;
         uint8 initialHandSize;
         HookPermissions hookPermissions;
+        bool recycleMarketDeck;
     }
 
     function createGame(CreateGameParams calldata params) external returns (uint256 gameId);

@@ -3,8 +3,8 @@ pragma solidity ^0.8.24;
 
 import {BaseModifier} from "../base/BaseModifier.sol";
 import {ICardEngine} from "../interfaces/ICardEngine.sol";
-
 import {IManagerHook, IManagerView} from "../interfaces/IManager.sol";
+import {IRuleset} from "../interfaces/IRuleset.sol";
 import {Action, Card, PlayerScoreData} from "../libraries/CardEngineLib.sol";
 
 abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
@@ -58,6 +58,7 @@ abstract contract BaseManager is BaseModifier, IManagerHook, IManagerView {
 
     function onFinishGame(
         uint256, /*gameId*/
+        IRuleset, /*gameRuleset*/
         PlayerScoreData[] calldata, /*playersData*/
         uint256[2] calldata /*marketDeck*/
     ) external virtual onlyCardEngine {

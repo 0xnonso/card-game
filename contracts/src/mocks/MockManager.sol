@@ -51,7 +51,7 @@ contract MockManager is BaseManager {
         return endGameAfter;
     }
 
-    function onFinishGame(uint256, PlayerScoreData[] calldata, uint256[2] calldata) external override onlyCardEngine {
+    function onFinishGame(uint256, IRuleset, PlayerScoreData[] calldata, uint256[2] calldata) external override onlyCardEngine {
         onFinishGameFlip = true;
     }
 

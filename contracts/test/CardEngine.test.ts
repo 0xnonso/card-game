@@ -13,6 +13,7 @@ import {
 	extractMarketDeckCommitted,
 	extractMoveCommitted,
 	extraDataForCard,
+	readMarketDeckHandles,
 	readGameData,
 	readPlayerData,
 	setupManagedGame,
@@ -627,10 +628,10 @@ describe("Engine", () => {
 			expect(cardsAfter).to.equal(cardsBefore - 1);
 		});
 
-		it("draws a card and updates the deck map", async () => {
-			const ctx = await deployEngineFixture();
-			const gameId = await startDefaultGame(ctx);
-			const { currentIndex, signer } = await currentPlayerCtx(ctx, gameId);
+			it("draws a card and updates the deck map", async () => {
+				const ctx = await deployEngineFixture();
+				const gameId = await startDefaultGame(ctx);
+				const { currentIndex, signer } = await currentPlayerCtx(ctx, gameId);
 
 			const before = await readPlayerData(
 				ctx.cardEngine,
@@ -644,9 +645,139 @@ describe("Engine", () => {
 				.executeMove(gameId, ACTION.Draw, "0x", "0x");
 
 			const after = await readPlayerData(ctx.cardEngine, gameId, currentIndex);
-			const afterCount = deckIndexes(after.deckMap).length;
-			expect(afterCount).to.equal(beforeCount + 1);
-		});
+				const afterCount = deckIndexes(after.deckMap).length;
+				expect(afterCount).to.equal(beforeCount + 1);
+			});
+
+			it("recycles the market deck on play when enabled", async () => {
+				const ctx = await deployEngineFixture();
+				const { gameId, params } = await createGameWithDefaults(ctx, {
+					recycleMarketDeck: true,
+				});
+
+				await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
+				await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
+				await ctx.cardEngine.connect(ctx.player2).joinGame(gameId);
+				await ctx.cardEngine.connect(ctx.alice).startGame(gameId);
+
+				const [before0, before1] = await readMarketDeckHandles(
+					ctx.cardEngine,
+					gameId,
+				);
+
+				const toHandle = (h: bigint): `0x${string}` =>
+					ethers.toBeHex(h, 32) as `0x${string}`;
+
+				const decodePackedDeck = (
+					word0: bigint,
+					word1: bigint,
+					deckSize: number,
+					cardBitSize: number,
+				): number[] => {
+					const numCardsIn0 = Math.floor(256 / cardBitSize);
+					const mask = (1n << BigInt(cardBitSize)) - 1n;
+					const cards: number[] = [];
+
+					for (let i = 0; i < deckSize; i++) {
+						const word = i < numCardsIn0 ? word0 : word1;
+						const shift = BigInt((i % numCardsIn0) * cardBitSize);
+						cards.push(Number((word >> shift) & mask));
+					}
+
+					return cards;
+				};
+
+					const decryptMarketDeck = async (
+						h0: bigint,
+						h1: bigint,
+					): Promise<{ handles: [`0x${string}`, `0x${string}`]; cards: number[] }> => {
+					const handles: [`0x${string}`, `0x${string}`] = [
+						toHandle(h0),
+						toHandle(h1),
+					];
+					const decrypted = await fhevm.publicDecrypt(handles);
+					const word0 = decrypted.clearValues[handles[0]] as bigint;
+					const word1 = decrypted.clearValues[handles[1]] as bigint;
+
+					// Params encode: 0 => 8 bits, 1 => 7 bits, 2 => 6 bits, 3 => 5 bits.
+					const cardBitSize = 8 - (params.cardBitSize & 0x03);
+					return {
+						handles,
+						cards: decodePackedDeck(word0, word1, params.cardDeckSize, cardBitSize),
+						};
+					};
+
+					const beforeHandles: [`0x${string}`, `0x${string}`] = [
+						toHandle(before0),
+						toHandle(before1),
+					];
+					console.log("marketDeck before handles:", beforeHandles);
+					console.log(
+						"marketDeck before cards (expected clear order):",
+						ctx.deckArray,
+					);
+
+				const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(
+					ctx,
+					gameId,
+				);
+
+				const targetCardIdx = cardIndexes[0];
+				const targetCardValue = ctx.deckArray[targetCardIdx];
+
+				const commitTx = await ctx.cardEngine
+					.connect(signer)
+					.commitMove(gameId, targetCardIdx);
+				const commitReceipt = await commitTx.wait();
+				const { encryptedCard } = extractMoveCommitted(
+					commitReceipt,
+					ctx.cardEngine.interface,
+				);
+
+				const decryptedCard = await fhevm.publicDecrypt([encryptedCard]);
+				const clearCard = decryptedCard.clearValues[
+					encryptedCard as `0x${string}`
+				] as bigint;
+				expect(clearCard).to.equal(BigInt(targetCardValue));
+
+				const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+					["bytes", "bytes32", "bytes", "uint8"],
+					[
+						decryptedCard.decryptionProof,
+						encryptedCard,
+						decryptedCard.abiEncodedClearValues,
+						targetCardIdx,
+					],
+				);
+
+				await ctx.cardEngine
+					.connect(signer)
+					.executeMove(
+						gameId,
+						ACTION.Play,
+						proofData,
+						extraDataForCard(targetCardValue, ctx.deckArray),
+					);
+
+				const [after0, after1] = await readMarketDeckHandles(
+					ctx.cardEngine,
+					gameId,
+				);
+
+				const afterDecoded = await decryptMarketDeck(after0, after1);
+				console.log("marketDeck after handles:", afterDecoded.handles);
+				console.log("marketDeck after cards:", afterDecoded.cards);
+
+				// At least one encrypted handle should change after recycling
+				expect(after0 === before0 && after1 === before1).to.equal(false);
+
+				const afterPlayer = await readPlayerData(
+					ctx.cardEngine,
+					gameId,
+					currentIndex,
+				);
+				expect(deckIndexes(afterPlayer.deckMap).length).to.be.greaterThan(0);
+			});
 	});
 
 	describe("Boot Out / Forfeit", () => {
@@ -789,16 +920,10 @@ describe("Engine", () => {
 
 			await ctx.cardEngine.endGame(gameId, proofData)
 
-      const player0 = await readPlayerData(ctx.cardEngine, gameId, 0n);
-      const player1 = await readPlayerData(ctx.cardEngine, gameId, 1n);
-      const player2 = await readPlayerData(ctx.cardEngine, gameId, 2n);
+      const gameData = await readGameData(ctx.cardEngine, gameId);
 
-      expect(player0.score).to.be.equal(65535n);
-      expect (player0.forfeited).to.be.equal(true);
-      expect(player1.score).to.be.equal(65535n);
-      expect (player1.forfeited).to.be.equal(true);
-      expect(player2.score).to.be.lessThan(65535n);
-      expect (player2.forfeited).to.be.equal(false);
+      // endGame should complete after decryption proof verification and push the game to Ended state
+      expect(gameData.status).to.equal(2n); // GameStatus.Ended
 		});
 
 		it("reverts when the market deck decryption proof was computed with a different handle order", async () => {

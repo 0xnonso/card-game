@@ -180,6 +180,20 @@ export const readGameData = async (cardEngine: CardEngine, gameId: bigint) => {
 	};
 };
 
+export const readMarketDeckHandles = async (
+	cardEngine: CardEngine,
+	gameId: bigint,
+): Promise<[bigint, bigint]> => {
+	const gameSlot = BigInt(
+		keccak256Encode(["uint256", "uint256"], [gameId, GAME_DATA_SLOT]),
+	);
+	const [h0, h1] = await cardEngine["extsload(uint256,uint256)"](
+		gameSlot + 2n,
+		2,
+	);
+	return [BigInt(h0), BigInt(h1)];
+};
+
 export const readPlayerData = async (
 	cardEngine: CardEngine,
 	gameId: bigint,
@@ -301,6 +315,7 @@ export const createGameWithDefaults = async (
 		proposedPlayers: string[];
 		hookPermissions: bigint;
 		encryptedDeck: EncryptedDeck;
+		recycleMarketDeck: boolean;
 	}> = {},
 ) => {
 	const encrypted = overrides.encryptedDeck ?? ctx.encryptedDeck;
@@ -317,6 +332,7 @@ export const createGameWithDefaults = async (
 			ctx.player2.address,
 		],
 		hookPermissions: overrides.hookPermissions ?? 0n,
+		recycleMarketDeck: overrides.recycleMarketDeck ?? false,
 		input0: encrypted.input0,
 		input1: encrypted.input1,
 		inputProof: encrypted.inputProof,
@@ -350,6 +366,7 @@ export const createManagedGame = async (
 			ctx.player2.address,
 		],
 		hookPermissions: overrides.hookPermissions ?? 0n,
+		recycleMarketDeck: false,
 		input0: encrypted.input0,
 		input1: encrypted.input1,
 		inputProof: encrypted.inputProof,

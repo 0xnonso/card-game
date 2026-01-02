@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Action, PlayerScoreData} from "../libraries/CardEngineLib.sol";
 import {Card} from "../types/Card.sol";
 import {DeckMap} from "../types/Map.sol";
+import {IRuleset} from "./IRuleset.sol";
 
 interface IManagerView {
     function hasSpecialMoves(uint256 gameId, address player, Card playingCard, Action action)
@@ -18,6 +19,6 @@ interface IManagerHook {
     function onJoinGame(uint256 gameId, address player) external;
     function onExecuteMove(uint256 gameId, address player, Card playingCard, Action action) external returns (bool);
     function onPlayerExit(uint256 gameId, address player, bool forfeited) external returns (bool);
-    function onFinishGame(uint256 gameId, PlayerScoreData[] calldata playersData, uint256[2] calldata marketDeck)
+    function onFinishGame(uint256 gameId, IRuleset gameRuleset, PlayerScoreData[] calldata playersData, uint256[2] calldata marketDeck)
         external;
 }
