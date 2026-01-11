@@ -10,8 +10,11 @@ import {Action, Card} from "../libraries/CardEngineLib.sol";
 contract PokerManager is BaseManager {
     struct CommunityHand {
         Card communityCard0;
+        bool decryptedCard0;
         Card communityCard1;
+        bool decryptedCard1;
         Card communityCard2;
+        bool decryptedCard2;
     }
 
     constructor(ICardEngine _cardEngine) BaseManager(_cardEngine) {}
