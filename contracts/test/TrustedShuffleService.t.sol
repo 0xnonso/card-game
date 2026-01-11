@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {TrustedShuffleServiceV0 as TSS} from "../src/TrustedShuffleService.sol";
-
 import {WhotCardStandardLibx8} from "../src/libraries/WhotCardDeck.sol";
 import {DummyShuffledProofs} from "./helpers/DummyShuffledProofs.sol";
 

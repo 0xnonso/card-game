@@ -15,6 +15,11 @@ export type EncryptedDeck = {
 export type EngineCtx = {
 	cardEngine: CardEngine;
 	ruleset: MockRuleset;
+	/**
+	 * Card bit-size for this test context (actual bits: 5..8).
+	 * On-chain this is encoded as (8 - cardBitSize) in the DeckMap low bits.
+	 */
+	cardBitSize: number;
 	alice: HardhatEthersSigner;
 	player0: HardhatEthersSigner;
 	player1: HardhatEthersSigner;
@@ -26,9 +31,10 @@ export type EngineCtx = {
 };
 
 const GAME_DATA_SLOT = 2n;
-const PLAYER_DATA_OFFSET = 4n;
+// Matches CardEngineView.PLAYER_DATA_OFFSET (players array slot inside GameData)
+const PLAYERS_SLOT_OFFSET = 4n;
 const ADDRESS_MASK = (1n << 160n) - 1n;
-const U64_MASK = (1n << 64n) - 1n;
+const U72_MASK = (1n << 72n) - 1n;
 
 export type HookPermissionsConfig = {
 	onStartGame?: boolean;
@@ -128,6 +134,56 @@ export const deckIndexes = (deckMap: bigint): number[] => {
 	return indexes;
 };
 
+export const deckValuesFromMap = (
+	deckMap: bigint,
+	deckArray: readonly number[],
+): number[] => deckIndexes(deckMap).map((idx) => deckArray[idx] ?? 0);
+
+const decodePackedDeck = (
+	deckMap: bigint,
+	packedDeckWords: readonly bigint[],
+): number[] => {
+	const cardBitSize = 8 - Number(deckMap & 0x03n);
+	const cardsPerWord = Math.floor(256 / cardBitSize);
+	const mask = (1n << BigInt(cardBitSize)) - 1n;
+
+	return deckIndexes(deckMap).map((idx) => {
+		const wordIndex = Math.floor(idx / cardsPerWord);
+		const bitOffset = BigInt((idx % cardsPerWord) * cardBitSize);
+		const word = packedDeckWords[wordIndex] ?? 0n;
+		return Number((word >> bitOffset) & mask);
+	});
+};
+
+export const decodeDeck = async (
+	deckMap: bigint,
+	encryptedDeck: readonly [string, string],
+): Promise<number[]> => {
+	const h0 = encryptedDeck[0] as `0x${string}`;
+	const h1 = encryptedDeck[1] as `0x${string}`;
+	const decrypted = await fhevm.publicDecrypt([h0, h1]);
+	const word0 = decrypted.clearValues[h0] as bigint;
+	const word1 = decrypted.clearValues[h1] as bigint;
+
+	return decodePackedDeck(deckMap, [word0, word1]);
+};
+
+export const decryptCard = async (
+	encryptedCard: string,
+): Promise<{
+	clearCard: bigint;
+	decryptionProof: `0x${string}`;
+	abiEncodedClearValues: `0x${string}`;
+}> => {
+	const handle = encryptedCard as `0x${string}`;
+	const decrypted = await fhevm.publicDecrypt([handle]);
+	return {
+		clearCard: decrypted.clearValues[handle] as bigint,
+		decryptionProof: decrypted.decryptionProof,
+		abiEncodedClearValues: decrypted.abiEncodedClearValues,
+	};
+};
+
 export const extraDataForCard = (
 	cardValue: number,
 	deckArray?: number[],
@@ -171,11 +227,12 @@ export const readGameData = async (cardEngine: CardEngine, gameId: bigint) => {
 		gameCreator: toAddress(loadBits(v0, 0n, ADDRESS_MASK)),
 		playerTurnIdx: loadBits(v0, 168n, 0xffn),
 		status: loadBits(v0, 176n, 0xffn),
-		playersLeftToJoin: loadBits(v1, 232n, 0xffn),
+		// bit layout (slot 1): address ruleset (160) | DeckMap (72) | initialHandSize (8) | playersLeftToJoin (8) | recycle (8)
+		playersLeftToJoin: loadBits(v1, 240n, 0xffn),
 		hookPermissions: loadBits(v0, 232n, 0xffn),
-		playerStoreMap: loadBits(v0, 240n, 0xffn),
-		marketDeckMap: loadBits(v1, 160n, U64_MASK),
-		initialHandSize: loadBits(v1, 224n, 0xffn),
+		playerStoreMap: loadBits(v0, 240n, 0xffffn),
+		marketDeckMap: loadBits(v1, 160n, U72_MASK),
+		initialHandSize: loadBits(v1, 232n, 0xffn),
 		ruleset: toAddress(loadBits(v1, 0n, ADDRESS_MASK)),
 	};
 };
@@ -183,7 +240,7 @@ export const readGameData = async (cardEngine: CardEngine, gameId: bigint) => {
 export const readMarketDeckHandles = async (
 	cardEngine: CardEngine,
 	gameId: bigint,
-): Promise<[bigint, bigint]> => {
+): Promise<[string, string]> => {
 	const gameSlot = BigInt(
 		keccak256Encode(["uint256", "uint256"], [gameId, GAME_DATA_SLOT]),
 	);
@@ -191,7 +248,9 @@ export const readMarketDeckHandles = async (
 		gameSlot + 2n,
 		2,
 	);
-	return [BigInt(h0), BigInt(h1)];
+	const toBytes32Hex = (value: unknown): string =>
+		typeof value === "bigint" ? ethers.toBeHex(value, 32) : (value as string);
+	return [toBytes32Hex(h0), toBytes32Hex(h1)];
 };
 
 export const readPlayerData = async (
@@ -201,15 +260,15 @@ export const readPlayerData = async (
 ) => {
 	// mirror CardEngineView.getPlayerDataSlot:
 	// slot = keccak256(abi.encode(gameId, GAME_DATA_SLOT)) + PLAYER_DATA_OFFSET;
-	// slot = keccak256(abi.encode(slot)) + playerIndex;
+	// slot = keccak256(abi.encode(slot)) + playerIndex * 3 (player struct uses 3 slots).
 	const gameSlot = BigInt(
 		keccak256Encode(["uint256", "uint256"], [gameId, GAME_DATA_SLOT]),
 	);
-	const baseSlot = gameSlot + PLAYER_DATA_OFFSET;
-	const slot =
+	const baseSlot = gameSlot + PLAYERS_SLOT_OFFSET;
+	const slot0 =
 		BigInt(keccak256Encode(["uint256"], [baseSlot])) + playerIndex * 3n;
 	const [raw0, raw1, raw2] = await cardEngine["extsload(uint256,uint256)"](
-		slot,
+		slot0,
 		3,
 	);
 	const v0 = BigInt(raw0 ?? 0);
@@ -218,9 +277,8 @@ export const readPlayerData = async (
 
 	return {
 		playerAddr: toAddress(loadBits(v0, 0n, ADDRESS_MASK)),
-		deckMap: loadBits(v0, 160n, U64_MASK),
-		pendingAction: loadBits(v0, 224n, 0xffn),
-		score: loadBits(v0, 232n, 0xffffn),
+		deckMap: loadBits(v0, 160n, U72_MASK),
+		pendingAction: loadBits(v0, 240n, 0xffn),
 		forfeited: loadBits(v0, 248n, 0xffn) !== 0n,
 		hand0: v1,
 		hand1: v2,
@@ -231,29 +289,44 @@ export const buildEncryptedInputFor = async (
 	cardEngine: CardEngine,
 	owner: string,
 	deckArray: Array<number>,
+	cardBitSize = 8,
 ): Promise<EncryptedDeck> => {
+	if (!Number.isInteger(cardBitSize) || cardBitSize < 5 || cardBitSize > 8) {
+		throw new Error(
+			`cardBitSize must be an integer between 5 and 8 (got ${cardBitSize})`,
+		);
+	}
+
+	const cardsPerWord = Math.floor(256 / cardBitSize);
+	const maxValue = (1n << BigInt(cardBitSize)) - 1n;
+
+	for (const v of deckArray) {
+		if (!Number.isInteger(v) || v < 0) {
+			throw new Error(`deck values must be non-negative integers (got ${v})`);
+		}
+		if (BigInt(v) > maxValue) {
+			throw new Error(
+				`deck value ${v} does not fit in cardBitSize=${cardBitSize}`,
+			);
+		}
+	}
+
 	const input = fhevm.createEncryptedInput(
 		await cardEngine.getAddress(),
 		owner,
 	);
-	input.add256(
-		deckArray
-			.slice(0, 32)
-			.reduce(
-				(acc: bigint, v: number, i: number) =>
-					acc | (BigInt(v) << BigInt(i * 8)),
-				0n,
-			),
-	);
-	input.add256(
-		deckArray
-			.slice(32)
-			.reduce(
-				(acc: bigint, v: number, i: number) =>
-					acc | (BigInt(v) << BigInt(i * 8)),
-				0n,
-			),
-	);
+
+	const pack = (chunk: number[]): bigint =>
+		chunk.reduce(
+			(acc: bigint, v: number, i: number) =>
+				acc | (BigInt(v) << BigInt(i * cardBitSize)),
+			0n,
+		);
+
+	input.add256(pack(deckArray.slice(0, cardsPerWord)));
+	if (deckArray.length > cardsPerWord) {
+		input.add256(pack(deckArray.slice(cardsPerWord, cardsPerWord * 2)));
+	}
 	const raw = await input.encrypt();
 	const handles = raw.handles.map((h) =>
 		typeof h === "string" ? h : ethers.hexlify(h),
@@ -279,6 +352,15 @@ export const buildEncryptedInputFor = async (
 			};
 
 	return { input0, input1, inputProof, handles };
+};
+
+const encodeCardBitSize = (cardBitSize: number): number => {
+	if (!Number.isInteger(cardBitSize) || cardBitSize < 5 || cardBitSize > 8) {
+		throw new Error(
+			`cardBitSize must be an integer between 5 and 8 (got ${cardBitSize})`,
+		);
+	}
+	return 8 - cardBitSize;
 };
 
 const parseGameId = (
@@ -319,11 +401,13 @@ export const createGameWithDefaults = async (
 	}> = {},
 ) => {
 	const encrypted = overrides.encryptedDeck ?? ctx.encryptedDeck;
+	const cardBitSize = overrides.cardBitSize ?? ctx.cardBitSize;
+	const cardDeckSize = overrides.cardDeckSize ?? ctx.deckArray.length;
 
 	const params = {
 		gameRuleset: overrides.gameRuleset ?? (await ctx.ruleset.getAddress()),
-		cardBitSize: overrides.cardBitSize ?? 0,
-		cardDeckSize: overrides.cardDeckSize ?? 54,
+		cardBitSize: encodeCardBitSize(cardBitSize),
+		cardDeckSize,
 		maxPlayers: overrides.maxPlayers ?? 3,
 		initialHandSize: overrides.initialHandSize ?? 2,
 		proposedPlayers: overrides.proposedPlayers ?? [
@@ -347,17 +431,18 @@ export const createGameWithDefaults = async (
 export const createManagedGame = async (
 	ctx: EngineCtx,
 	manager: MockManager,
-	overrides: Partial<{ hookPermissions: bigint }> = {},
+	overrides: Partial<{ hookPermissions: bigint; recycleMarketDeck: boolean }> = {},
 ) => {
 	const encrypted = await buildEncryptedInputFor(
 		ctx.cardEngine,
 		await manager.getAddress(),
 		ctx.deckArray,
+		ctx.cardBitSize,
 	);
 	const params = {
 		gameRuleset: await ctx.ruleset.getAddress(),
-		cardBitSize: 0,
-		cardDeckSize: 54,
+		cardBitSize: encodeCardBitSize(ctx.cardBitSize),
+		cardDeckSize: ctx.deckArray.length,
 		maxPlayers: 3,
 		initialHandSize: 2,
 		proposedPlayers: [
@@ -366,7 +451,7 @@ export const createManagedGame = async (
 			ctx.player2.address,
 		],
 		hookPermissions: overrides.hookPermissions ?? 0n,
-		recycleMarketDeck: false,
+		recycleMarketDeck: overrides.recycleMarketDeck ?? false,
 		input0: encrypted.input0,
 		input1: encrypted.input1,
 		inputProof: encrypted.inputProof,
@@ -388,11 +473,16 @@ export const deployMockManager = async (ctx: EngineCtx): Promise<MockManager> =>
 
 export const setupManagedGame = async (
 	ctx: EngineCtx,
-	options: { manager: MockManager; hookPermissions?: bigint },
+	options: {
+		manager: MockManager;
+		hookPermissions?: bigint;
+		recycleMarketDeck?: boolean;
+	},
 ) => {
 	const manager = options.manager;
 	const { gameId } = await createManagedGame(ctx, manager, {
 		hookPermissions: options.hookPermissions ?? 0n,
+		recycleMarketDeck: options.recycleMarketDeck ?? false,
 	});
 	await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
 	await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);

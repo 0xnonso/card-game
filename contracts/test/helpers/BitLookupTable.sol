@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 library BitLookupTable {
     uint8 internal constant NO_BIT = 0xFF;
 
-    function _popcount(uint8 x) internal view returns (uint8) {
+    function _popcount(uint8 x) internal pure returns (uint8) {
         // forgefmt: disable-next-item
         uint8[256] memory POPCOUNT8 = [
             0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4, 
@@ -27,43 +27,45 @@ library BitLookupTable {
         return POPCOUNT8[x];
     }
 
-    function popcount(uint8 x) internal view returns (uint8) {
+    function popcount(uint8 x) internal pure returns (uint8) {
         return _popcount(x);
     }
 
-    function popcount(uint64 x) internal view returns (uint8) {
+    function popcount(uint72 x) internal pure returns (uint8) {
         // forgefmt: disable-next-item
-        return _popcount(uint8(x)) 
-            + _popcount(uint8(x >> 8)) 
+        return _popcount(uint8(x))
+            + _popcount(uint8(x >> 8))
             + _popcount(uint8(x >> 16))
-            + _popcount(uint8(x >> 24)) 
-            + _popcount(uint8(x >> 32)) 
+            + _popcount(uint8(x >> 24))
+            + _popcount(uint8(x >> 32))
             + _popcount(uint8(x >> 40))
-            + _popcount(uint8(x >> 48)) 
-            + _popcount(uint8(x >> 56));
+            + _popcount(uint8(x >> 48))
+            + _popcount(uint8(x >> 56))
+            + _popcount(uint8(x >> 64));
     }
 
-    function nextRight(uint64 value, uint8 startIdx) internal pure returns (uint8 next) {
-        uint256 i = (startIdx + 63) % 64;
+    function nextRight(uint72 value, uint8 startIdx) internal pure returns (uint8 next) {
+        // Wrap within 80 bits
+        uint256 i = (startIdx + 71) % 72;
         next = NO_BIT;
         while (i != startIdx) {
             if ((value & (1 << i)) != 0) {
                 next = uint8(i);
                 break;
             }
-            i = (i + 63) % 64;
+            i = (i + 71) % 72;
         }
     }
 
-    function nextLeft(uint64 value, uint8 startIdx) internal pure returns (uint8 next) {
-        uint256 i = (uint256(startIdx) + 1) % 64;
+    function nextLeft(uint72 value, uint8 startIdx) internal pure returns (uint8 next) {
+        uint256 i = (uint256(startIdx) + 1) % 72;
         next = NO_BIT;
         while (i != startIdx) {
             if ((value & (1 << i)) != 0) {
                 next = uint8(i);
                 break;
             }
-            i = (i + 1) % 64;
+            i = (i + 1) % 72;
         }
     }
 }

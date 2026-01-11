@@ -50,6 +50,10 @@ library CacheManager {
         return uint64(CacheValue.unwrap(value) >> ptr);
     }
 
+    function loadU72(CacheValue value, uint8 ptr) internal pure returns (uint72) {
+        return uint72(CacheValue.unwrap(value) >> ptr);
+    }
+
     function loadU256(CacheValue value, uint8 ptr) internal pure returns (uint256) {
         return uint256(CacheValue.unwrap(value) >> ptr);
     }
@@ -67,14 +71,13 @@ library GameDataPositions {
 
     uint8 internal constant RULESET = 0;
     uint8 internal constant MARKET_DECK_MAP = 160;
-    uint8 internal constant INITIAL_HAND_SIZE = 224;
-    uint8 internal constant PLAYERS_LEFT_TO_JOIN = 232;
+    uint8 internal constant INITIAL_HAND_SIZE = 232;
+    uint8 internal constant PLAYERS_LEFT_TO_JOIN = 240;
 }
 
 library PlayerDataPositions {
     uint8 internal constant PLAYER_ADDRESS = 0;
     uint8 internal constant DECKMAP = 160;
-    uint8 internal constant PENDING_ACTION = 224;
-    uint8 internal constant SCORE = 232;
-    uint8 internal constant FORFEITED = 248;
+    uint8 internal constant PENDING_ACTION = 232;
+    uint8 internal constant FORFEITED = 240;
 }

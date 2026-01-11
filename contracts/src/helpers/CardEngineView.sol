@@ -44,7 +44,6 @@ contract CardEngineView {
             address playerAddr,
             DeckMap playerDeckMap,
             uint8 pendingAction,
-            uint16 playerScore,
             bool forfeited,
             euint256[2] memory playerHand
         )
@@ -55,9 +54,8 @@ contract CardEngineView {
         CacheValue value0 = CacheValue.wrap(values[0]);
 
         playerAddr = value0.loadAddress(PDP.PLAYER_ADDRESS);
-        playerDeckMap = DeckMap.wrap(value0.loadU64(PDP.DECKMAP));
+        playerDeckMap = DeckMap.wrap(value0.loadU72(PDP.DECKMAP));
         pendingAction = value0.loadU8(PDP.PENDING_ACTION);
-        playerScore = value0.loadU16(PDP.SCORE);
         forfeited = value0.loadU8(PDP.FORFEITED) != 0;
         playerHand[0] = euint256.wrap(bytes32(values[1]));
         playerHand[1] = euint256.wrap(bytes32(values[2]));
@@ -96,7 +94,7 @@ contract CardEngineView {
         value = CacheValue.wrap(values[1]);
 
         ruleset = IRuleset(value.loadAddress(GDP.RULESET));
-        marketDeckMap = DeckMap.wrap(value.loadU64(GDP.MARKET_DECK_MAP));
+        marketDeckMap = DeckMap.wrap(value.loadU72(GDP.MARKET_DECK_MAP));
         initialHandSize = value.loadU8(GDP.INITIAL_HAND_SIZE);
         playersLeftToJoin = value.loadU8(GDP.PLAYERS_LEFT_TO_JOIN);
     }

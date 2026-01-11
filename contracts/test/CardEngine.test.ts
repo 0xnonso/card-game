@@ -7,18 +7,21 @@ import type { MockManager } from "../types/src/mocks/MockManager";
 import type { MockRuleset } from "../types/src/mocks/MockRuleset";
 import type { EngineCtx } from "./helpers/engine";
 import {
-	buildEncryptedInputFor,
-	createGameWithDefaults,
-	deckIndexes,
-	extractMarketDeckCommitted,
-	extractMoveCommitted,
-	extraDataForCard,
-	readMarketDeckHandles,
-	readGameData,
+		buildEncryptedInputFor,
+			createGameWithDefaults,
+			decodeDeck,
+			decryptCard,
+			deckIndexes,
+			deckValuesFromMap,
+			extractMarketDeckCommitted,
+			extractMoveCommitted,
+			extraDataForCard,
+			readMarketDeckHandles,
+		readGameData,
 	readPlayerData,
 	setupManagedGame,
 	buildHookPermissions,
-  deployMockManager,
+	deployMockManager,
 } from "./helpers/engine";
 
 const ACTION = {
@@ -28,11 +31,12 @@ const ACTION = {
 	Neutral: 3,
 } as const;
 
-const WHOT_DECK_TEMPLATE = [
-	1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 65, 66, 67, 68, 69, 71, 72, 74, 75,
-	76, 77, 78, 33, 34, 35, 37, 39, 42, 43, 45, 46, 97, 98, 99, 101, 103, 106,
-	107, 109, 110, 129, 130, 131, 132, 133, 135, 136, 180, 180, 180, 180, 180,
+const TEST_DECK = [
+	1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+	22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+	41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54,
 ];
+const CARD_BIT_SIZES = [8, 7, 6] as const;
 
 const startDefaultGame = async (ctx: EngineCtx) => {
 	const { gameId } = await createGameWithDefaults(ctx);
@@ -60,48 +64,51 @@ const currentPlayerCtx = async (ctx: EngineCtx, gameId: bigint) => {
 	return { gameData, currentIndex, playerData, signer, cardIndexes };
 };
 
-async function deployEngineFixture(): Promise<EngineCtx> {
-	if (!fhevm.isMock) {
-		throw new Error(
-			"This hardhat test suite can only run in FHEVM mock environment",
-		);
-	}
-	const accounts = await ethers.getSigners();
-	const [alice, player0, player1, player2, player3] = accounts;
-	const cardEngineFactory = await ethers.getContractFactory("CardEngine");
-	const cardEngine = (await cardEngineFactory
-		.connect(alice)
-		.deploy()) as CardEngine;
-	await cardEngine.waitForDeployment();
+for (const cardBitSize of CARD_BIT_SIZES) {
+	describe(`Engine (${cardBitSize}-bit)`, () => {
+		async function deployEngineFixture(): Promise<EngineCtx> {
+			if (!fhevm.isMock) {
+				throw new Error(
+					"This hardhat test suite can only run in FHEVM mock environment",
+				);
+			}
+			const accounts = await ethers.getSigners();
+			const [alice, player0, player1, player2, player3] = accounts;
+			const cardEngineFactory = await ethers.getContractFactory("CardEngine");
+			const cardEngine = (await cardEngineFactory
+				.connect(alice)
+				.deploy()) as CardEngine;
+			await cardEngine.waitForDeployment();
 
-	const rulesetFactory = await ethers.getContractFactory("MockRuleset");
-	const ruleset = (await rulesetFactory
-		.connect(alice)
-		.deploy(await cardEngine.getAddress())) as MockRuleset;
-	await ruleset.waitForDeployment();
+			const rulesetFactory = await ethers.getContractFactory("MockRuleset");
+			const ruleset = (await rulesetFactory
+				.connect(alice)
+				.deploy(await cardEngine.getAddress())) as MockRuleset;
+			await ruleset.waitForDeployment();
 
-	const deckArray = [...WHOT_DECK_TEMPLATE];
-	const encryptedDeck = await buildEncryptedInputFor(
-		cardEngine,
-		alice.address,
-		deckArray,
-	);
+			const deckArray = [...TEST_DECK];
+			const encryptedDeck = await buildEncryptedInputFor(
+				cardEngine,
+				alice.address,
+				deckArray,
+				cardBitSize,
+			);
 
-	return {
-		cardEngine,
-		ruleset,
-		alice,
-		player0,
-		player1,
-		player2,
-		player3,
-		accounts: accounts.slice(4),
-		deckArray,
-		encryptedDeck,
-	} as EngineCtx;
-}
+			return {
+				cardEngine,
+				ruleset,
+				cardBitSize,
+				alice,
+				player0,
+				player1,
+				player2,
+				player3,
+				accounts: accounts.slice(4),
+				deckArray,
+				encryptedDeck,
+			} as EngineCtx;
+		}
 
-describe("Engine", () => {
 	describe("Create Game", () => {
 		it("Should emit game id", async () => {
 			const ctx = await deployEngineFixture();
@@ -111,29 +118,26 @@ describe("Engine", () => {
 
 		it("initializes marketDeckMap with expected deck size and card bit size", async () => {
 			const ctx = await deployEngineFixture();
-			const deckSize = 54;
-			const bitSize = 8;
-			const { gameId } = await createGameWithDefaults(ctx, {
-				cardDeckSize: deckSize,
-				cardBitSize: bitSize,
-			});
+			const { gameId } = await createGameWithDefaults(ctx);
 			const { marketDeckMap } = await readGameData(ctx.cardEngine, gameId);
 			const idxs = deckIndexes(marketDeckMap);
-			expect(idxs.length).to.equal(deckSize);
-			const encodedBitSize = 8n - (marketDeckMap & 0x03n);
-			expect(encodedBitSize).to.equal(bitSize);
+			expect(idxs.length).to.equal(ctx.deckArray.length);
+			const decodedBitSize = 8n - (marketDeckMap & 0x03n);
+			expect(decodedBitSize).to.equal(BigInt(ctx.cardBitSize));
 		});
 
-		it("reverts when initial hand size exceeds available cards", async () => {
-			const ctx = await deployEngineFixture();
-			await expect(
-				createGameWithDefaults(ctx, {
-					proposedPlayers: [],
-					maxPlayers: 5,
-					initialHandSize: 11,
-				}),
-			).to.be.revertedWithCustomError(ctx.cardEngine, "CardDeckSizeTooSmall");
-		});
+			it("reverts when initial hand size exceeds available cards", async () => {
+				const ctx = await deployEngineFixture();
+				const maxPlayers = 5;
+				const initialHandSize = Math.floor(ctx.deckArray.length / maxPlayers) + 1;
+				await expect(
+					createGameWithDefaults(ctx, {
+						proposedPlayers: [],
+						maxPlayers,
+						initialHandSize,
+					}),
+				).to.be.revertedWithCustomError(ctx.cardEngine, "CardDeckSizeTooSmall");
+			});
 
     it("ensure max players allowed to join cannot exceed cap", async () => {
 			const ctx = await deployEngineFixture();
@@ -375,16 +379,17 @@ describe("Engine", () => {
 				ctx.cardEngine.interface,
 			);
 
-			const decrypted = await fhevm.publicDecrypt([encryptedCard]);
-			const clearCard = decrypted.clearValues[encryptedCard as `0x${string}`];
-			expect(clearCard).to.equal(targetCardValue);
-			const decryptionProof: `0x${string}` = decrypted.decryptionProof;
-			const abiEncodedClearValues: `0x${string}` =
-				decrypted.abiEncodedClearValues;
-			const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
-				["bytes", "bytes32", "bytes", "uint8"],
-				[decryptionProof, encryptedCard, abiEncodedClearValues, targetCardIdx],
-			);
+				const decrypted = await decryptCard(encryptedCard);
+				expect(Number(decrypted.clearCard)).to.equal(targetCardValue);
+				const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+					["bytes", "bytes32", "bytes", "uint8"],
+					[
+						decrypted.decryptionProof,
+						encryptedCard,
+						decrypted.abiEncodedClearValues,
+						targetCardIdx,
+					],
+				);
 
 			await expect(
 				ctx.cardEngine
@@ -428,16 +433,17 @@ describe("Engine", () => {
 				ctx.cardEngine.interface,
 			);
 
-			const decrypted = await fhevm.publicDecrypt([encryptedCard]);
-			const clearCard = decrypted.clearValues[encryptedCard as `0x${string}`];
-			expect(clearCard).to.equal(targetCardValue);
-			const decryptionProof: `0x${string}` = decrypted.decryptionProof;
-			const abiEncodedClearValues: `0x${string}` =
-				decrypted.abiEncodedClearValues;
-			const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
-				["bytes", "bytes32", "bytes", "uint8"],
-				[decryptionProof, encryptedCard, abiEncodedClearValues, targetCardIdx],
-			);
+				const decrypted = await decryptCard(encryptedCard);
+				expect(Number(decrypted.clearCard)).to.equal(targetCardValue);
+				const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+					["bytes", "bytes32", "bytes", "uint8"],
+					[
+						decrypted.decryptionProof,
+						encryptedCard,
+						decrypted.abiEncodedClearValues,
+						targetCardIdx,
+					],
+				);
 
 			await ctx.cardEngine.connect(signer).breakCommitment(gameId);
 
@@ -487,19 +493,18 @@ describe("Engine", () => {
 			);
 			expect(postTurn).to.equal(currentIndex);
 
-			const decrypted = await fhevm.publicDecrypt([encryptedCard]);
-			const clearCard = decrypted.clearValues[encryptedCard as `0x${string}`];
-
-			expect(clearCard).to.equal(targetCardValue);
-
-			const decryptionProof: `0x${string}` = decrypted.decryptionProof;
-			const abiEncodedClearValues: `0x${string}` =
-				decrypted.abiEncodedClearValues;
-			const wrongCardIdx = cardIndexes[1];
-			const wrongProofData = ethers.AbiCoder.defaultAbiCoder().encode(
-				["bytes", "bytes32", "bytes", "uint8"],
-				[decryptionProof, encryptedCard, abiEncodedClearValues, wrongCardIdx],
-			);
+				const decrypted = await decryptCard(encryptedCard);
+				expect(Number(decrypted.clearCard)).to.equal(targetCardValue);
+				const wrongCardIdx = cardIndexes[1];
+				const wrongProofData = ethers.AbiCoder.defaultAbiCoder().encode(
+					["bytes", "bytes32", "bytes", "uint8"],
+					[
+						decrypted.decryptionProof,
+						encryptedCard,
+						decrypted.abiEncodedClearValues,
+						wrongCardIdx,
+					],
+				);
 
 			await expect(
 				ctx.cardEngine
@@ -535,16 +540,17 @@ describe("Engine", () => {
 				ctx.cardEngine.interface,
 			);
 
-			const decrypted = await fhevm.publicDecrypt([encryptedCard]);
-			const clearCard = decrypted.clearValues[encryptedCard as `0x${string}`];
-			expect(clearCard).to.equal(BigInt(targetCardValue));
-			const decryptionProof: `0x${string}` = decrypted.decryptionProof;
-			const abiEncodedClearValues: `0x${string}` =
-				decrypted.abiEncodedClearValues;
-			const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
-				["bytes", "bytes32", "bytes", "uint8"],
-				[decryptionProof, encryptedCard, abiEncodedClearValues, targetCardIdx],
-			);
+				const decrypted = await decryptCard(encryptedCard);
+				expect(Number(decrypted.clearCard)).to.equal(targetCardValue);
+				const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+					["bytes", "bytes32", "bytes", "uint8"],
+					[
+						decrypted.decryptionProof,
+						encryptedCard,
+						decrypted.abiEncodedClearValues,
+						targetCardIdx,
+					],
+				);
 
       const allPlayers = [ctx.player0, ctx.player1, ctx.player2];
 			const nextPlayer =
@@ -596,15 +602,17 @@ describe("Engine", () => {
 				commitReceipt,
 				ctx.cardEngine.interface,
 			);
-			const decrypted = await fhevm.publicDecrypt([encryptedCard]);
-			const clearCard = decrypted.clearValues[encryptedCard as `0x${string}`];
-			expect(clearCard).to.equal(targetCardValue);
-			const decryptionProof: `0x${string}` = decrypted.decryptionProof;
-			const decryptionResult: `0x${string}` = decrypted.abiEncodedClearValues;
-			const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
-				["bytes", "bytes32", "bytes", "uint8"],
-				[decryptionProof, encryptedCard, decryptionResult, targetCardIdx],
-			);
+				const decrypted = await decryptCard(encryptedCard);
+				expect(Number(decrypted.clearCard)).to.equal(targetCardValue);
+				const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+					["bytes", "bytes32", "bytes", "uint8"],
+					[
+						decrypted.decryptionProof,
+						encryptedCard,
+						decrypted.abiEncodedClearValues,
+						targetCardIdx,
+					],
+				);
 
 			await expect(
 				ctx.cardEngine
@@ -628,16 +636,12 @@ describe("Engine", () => {
 			expect(cardsAfter).to.equal(cardsBefore - 1);
 		});
 
-			it("draws a card and updates the deck map", async () => {
-				const ctx = await deployEngineFixture();
-				const gameId = await startDefaultGame(ctx);
-				const { currentIndex, signer } = await currentPlayerCtx(ctx, gameId);
+		it("draws a card and updates the deck map", async () => {
+			const ctx = await deployEngineFixture();
+			const gameId = await startDefaultGame(ctx);
+			const { currentIndex, signer } = await currentPlayerCtx(ctx, gameId);
 
-			const before = await readPlayerData(
-				ctx.cardEngine,
-				gameId,
-				currentIndex,
-			);
+			const before = await readPlayerData(ctx.cardEngine, gameId, currentIndex);
 			const beforeCount = deckIndexes(before.deckMap).length;
 
 			await ctx.cardEngine
@@ -645,139 +649,78 @@ describe("Engine", () => {
 				.executeMove(gameId, ACTION.Draw, "0x", "0x");
 
 			const after = await readPlayerData(ctx.cardEngine, gameId, currentIndex);
-				const afterCount = deckIndexes(after.deckMap).length;
-				expect(afterCount).to.equal(beforeCount + 1);
+			const afterCount = deckIndexes(after.deckMap).length;
+			expect(afterCount).to.equal(beforeCount + 1);
+		});
+
+		it("recycles the market deck on play when enabled", async () => {
+			const ctx = await deployEngineFixture();
+			const manager = await deployMockManager(ctx);
+			await manager.modifyGameStatus(true);
+
+			const { gameId } = await setupManagedGame(ctx, {
+				manager,
+				hookPermissions: buildHookPermissions({ onExecuteMove: true }),
+				recycleMarketDeck: true,
 			});
 
-			it("recycles the market deck on play when enabled", async () => {
-				const ctx = await deployEngineFixture();
-				const { gameId, params } = await createGameWithDefaults(ctx, {
-					recycleMarketDeck: true,
-				});
+			const before = await readGameData(ctx.cardEngine, gameId);
+			const beforeMarketValues = deckValuesFromMap(
+				before.marketDeckMap,
+				ctx.deckArray,
+			);
 
-				await ctx.cardEngine.connect(ctx.player0).joinGame(gameId);
-				await ctx.cardEngine.connect(ctx.player1).joinGame(gameId);
-				await ctx.cardEngine.connect(ctx.player2).joinGame(gameId);
-				await ctx.cardEngine.connect(ctx.alice).startGame(gameId);
+			const { signer, cardIndexes } = await currentPlayerCtx(ctx, gameId);
+			const cardIndex = cardIndexes[0];
 
-				const [before0, before1] = await readMarketDeckHandles(
-					ctx.cardEngine,
+			const commitTx = await ctx.cardEngine.connect(signer).commitMove(
+				gameId,
+				cardIndex,
+			);
+			const commitReceipt = await commitTx.wait();
+			const { encryptedCard } = extractMoveCommitted(
+				commitReceipt,
+				ctx.cardEngine.interface,
+			);
+
+			const decryptedCard = await decryptCard(encryptedCard);
+			const cardValue = Number(decryptedCard.clearCard);
+			const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+				["bytes", "bytes32", "bytes", "uint8"],
+				[
+					decryptedCard.decryptionProof,
+					encryptedCard,
+					decryptedCard.abiEncodedClearValues,
+					cardIndex,
+				],
+			);
+
+			await ctx.cardEngine
+				.connect(signer)
+				.executeMove(
 					gameId,
+					ACTION.Play,
+					proofData,
+					extraDataForCard(cardValue, ctx.deckArray),
 				);
 
-				const toHandle = (h: bigint): `0x${string}` =>
-					ethers.toBeHex(h, 32) as `0x${string}`;
+			const after = await readGameData(ctx.cardEngine, gameId);
+			expect(after.status).to.equal(2n);
 
-				const decodePackedDeck = (
-					word0: bigint,
-					word1: bigint,
-					deckSize: number,
-					cardBitSize: number,
-				): number[] => {
-					const numCardsIn0 = Math.floor(256 / cardBitSize);
-					const mask = (1n << BigInt(cardBitSize)) - 1n;
-					const cards: number[] = [];
+			const [afterH0, afterH1] = await readMarketDeckHandles(
+				ctx.cardEngine,
+				gameId,
+			);
+			const afterMarketValues = await decodeDeck(after.marketDeckMap, [
+				afterH0,
+				afterH1,
+			]);
 
-					for (let i = 0; i < deckSize; i++) {
-						const word = i < numCardsIn0 ? word0 : word1;
-						const shift = BigInt((i % numCardsIn0) * cardBitSize);
-						cards.push(Number((word >> shift) & mask));
-					}
-
-					return cards;
-				};
-
-					const decryptMarketDeck = async (
-						h0: bigint,
-						h1: bigint,
-					): Promise<{ handles: [`0x${string}`, `0x${string}`]; cards: number[] }> => {
-					const handles: [`0x${string}`, `0x${string}`] = [
-						toHandle(h0),
-						toHandle(h1),
-					];
-					const decrypted = await fhevm.publicDecrypt(handles);
-					const word0 = decrypted.clearValues[handles[0]] as bigint;
-					const word1 = decrypted.clearValues[handles[1]] as bigint;
-
-					// Params encode: 0 => 8 bits, 1 => 7 bits, 2 => 6 bits, 3 => 5 bits.
-					const cardBitSize = 8 - (params.cardBitSize & 0x03);
-					return {
-						handles,
-						cards: decodePackedDeck(word0, word1, params.cardDeckSize, cardBitSize),
-						};
-					};
-
-					const beforeHandles: [`0x${string}`, `0x${string}`] = [
-						toHandle(before0),
-						toHandle(before1),
-					];
-					console.log("marketDeck before handles:", beforeHandles);
-					console.log(
-						"marketDeck before cards (expected clear order):",
-						ctx.deckArray,
-					);
-
-				const { currentIndex, signer, cardIndexes } = await currentPlayerCtx(
-					ctx,
-					gameId,
-				);
-
-				const targetCardIdx = cardIndexes[0];
-				const targetCardValue = ctx.deckArray[targetCardIdx];
-
-				const commitTx = await ctx.cardEngine
-					.connect(signer)
-					.commitMove(gameId, targetCardIdx);
-				const commitReceipt = await commitTx.wait();
-				const { encryptedCard } = extractMoveCommitted(
-					commitReceipt,
-					ctx.cardEngine.interface,
-				);
-
-				const decryptedCard = await fhevm.publicDecrypt([encryptedCard]);
-				const clearCard = decryptedCard.clearValues[
-					encryptedCard as `0x${string}`
-				] as bigint;
-				expect(clearCard).to.equal(BigInt(targetCardValue));
-
-				const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
-					["bytes", "bytes32", "bytes", "uint8"],
-					[
-						decryptedCard.decryptionProof,
-						encryptedCard,
-						decryptedCard.abiEncodedClearValues,
-						targetCardIdx,
-					],
-				);
-
-				await ctx.cardEngine
-					.connect(signer)
-					.executeMove(
-						gameId,
-						ACTION.Play,
-						proofData,
-						extraDataForCard(targetCardValue, ctx.deckArray),
-					);
-
-				const [after0, after1] = await readMarketDeckHandles(
-					ctx.cardEngine,
-					gameId,
-				);
-
-				const afterDecoded = await decryptMarketDeck(after0, after1);
-				console.log("marketDeck after handles:", afterDecoded.handles);
-				console.log("marketDeck after cards:", afterDecoded.cards);
-
-				// At least one encrypted handle should change after recycling
-				expect(after0 === before0 && after1 === before1).to.equal(false);
-
-				const afterPlayer = await readPlayerData(
-					ctx.cardEngine,
-					gameId,
-					currentIndex,
-				);
-				expect(deckIndexes(afterPlayer.deckMap).length).to.be.greaterThan(0);
-			});
+			expect(beforeMarketValues).to.not.equal(afterMarketValues);
+      expect(afterMarketValues.length).to.equal(beforeMarketValues.length + 1);
+      expect(beforeMarketValues).to.not.include(cardValue);
+			expect(afterMarketValues).to.include(cardValue);
+		});
 	});
 
 	describe("Boot Out / Forfeit", () => {
@@ -838,16 +781,17 @@ describe("Engine", () => {
 				ctx.cardEngine.interface,
 			);
 
-			const decrypted = await fhevm.publicDecrypt([encryptedCard]);
-			const clearCard = decrypted.clearValues[encryptedCard as `0x${string}`];
-			expect(clearCard).to.equal(targetCardValue);
-			const decryptionProof: `0x${string}` = decrypted.decryptionProof;
-			const abiEncodedClearValues: `0x${string}` =
-				decrypted.abiEncodedClearValues;
-			const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
-				["bytes", "bytes32", "bytes", "uint8"],
-				[decryptionProof, encryptedCard, abiEncodedClearValues, targetCardIdx],
-			);
+				const decrypted = await decryptCard(encryptedCard);
+				expect(decrypted.clearCard).to.equal(targetCardValue);
+				const proofData = ethers.AbiCoder.defaultAbiCoder().encode(
+					["bytes", "bytes32", "bytes", "uint8"],
+					[
+						decrypted.decryptionProof,
+						encryptedCard,
+						decrypted.abiEncodedClearValues,
+						targetCardIdx,
+					],
+				);
 
 			await ctx.cardEngine.bootOut(gameId, 0);
 
@@ -962,3 +906,4 @@ describe("Engine", () => {
 		});
 	});
 });
+}
