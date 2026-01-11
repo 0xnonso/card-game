@@ -66,6 +66,8 @@ library CardEngineLib {
 
     uint8 constant MAX_DEAL_N = 16;
     uint16 constant MAX_UINT16 = type(uint16).max;
+    uint256 constant MAX_IDX_BIT_SIZE = 7;
+    uint256 constant MAX_IDXS_PER_WORD = 36;
 
     function isPlayerActive(GameData storage $, address playerAddr, PlayerStoreMap playerStoreMap)
         internal
@@ -78,7 +80,11 @@ library CardEngineLib {
         return $.players[playerIdx].playerAddr == playerAddr;
     }
 
-    function getPlayerHand(DeckMap playerDeckMap, DeckMap marketDeckMap, uint256[2] memory marketDeck) internal view returns (Card[] memory) {
+    function getPlayerHand(DeckMap playerDeckMap, DeckMap marketDeckMap, uint256[2] memory marketDeck)
+        internal
+        pure
+        returns (Card[] memory)
+    {
         uint256[] memory cardIndexes = playerDeckMap.getNonEmptyIdxs();
         Card[] memory playerHand = new Card[](cardIndexes.length);
 
@@ -114,18 +120,25 @@ library CardEngineLib {
         FHE.allowThis(cardToCommit);
 
         if ($.recycleMarketDeck) {
-            euint256 encNonEmptyIdxsPacked;
-            uint256 nonEmptyIdxsPacked;
-            uint256[] memory nonEmptyIdxs = marketDeckMap.getNonEmptyIdxs(42);
-            for (uint256 i = 0; i < nonEmptyIdxs.length; i++) {
-                nonEmptyIdxsPacked |= (nonEmptyIdxs[i] << (i * 6));
+            uint256[2] memory nonEmptyIdxsPacked;
+            uint256[] memory nonEmptyIdxs = marketDeckMap.getNonEmptyIdxs();
+            euint8 encIndex;
+            {
+                uint256 marketDeckLen = nonEmptyIdxs.length;
+                bool multiWord = marketDeckLen > MAX_IDXS_PER_WORD;
+
+                nonEmptyIdxsPacked[0] = _packNonEmptyIdxs(nonEmptyIdxs, 0, multiWord ? MAX_IDXS_PER_WORD : marketDeckLen);
+                if (multiWord) {
+                    nonEmptyIdxsPacked[1] = _packNonEmptyIdxs(nonEmptyIdxs, MAX_IDXS_PER_WORD, marketDeckLen);
+                }
+
+                euint8 randIndex = FHE.randEuint32().asEuint64().mul(uint64(nonEmptyIdxs.length)).shr(32).asEuint8();
+                ebool within0 = randIndex.lt(uint8(MAX_IDXS_PER_WORD));
+                euint256 encNonEmptyIdxsPacked =
+                    FHE.select(within0, FHE.asEuint256(nonEmptyIdxsPacked[0]), FHE.asEuint256(nonEmptyIdxsPacked[1]));
+                randIndex = FHE.select(within0, randIndex, randIndex.sub(uint8(MAX_IDXS_PER_WORD)));
+                encIndex = encNonEmptyIdxsPacked.shr(randIndex.mul(uint8(MAX_IDX_BIT_SIZE))).and(0x7f).asEuint8();
             }
-            // generate random index from at most the first 42 market deck indexes
-            encNonEmptyIdxsPacked = FHE.asEuint256(nonEmptyIdxsPacked);
-            euint8 randIndex = FHE.asEuint8(
-                FHE.shr(FHE.mul(FHE.asEuint32(FHE.randEuint16()), FHE.asEuint32(uint32(nonEmptyIdxs.length))), 16)
-            );
-            euint8 encIndex = FHE.asEuint8(encNonEmptyIdxsPacked.shr(randIndex.mul(6)).and(0x3f));
             $.randomEncryptedIndex = encIndex;
 
             FHE.allowThis(encIndex);
@@ -181,7 +194,7 @@ library CardEngineLib {
 
         if ($.recycleMarketDeck) {
             replenishMarketDeck($, encryptedCard, cardIdx);
-            $.marketDeckMap.fill(cardIdx);
+            $.marketDeckMap = $.marketDeckMap.fill(cardIdx);
         }
     }
 
@@ -207,6 +220,7 @@ library CardEngineLib {
         uint8 numCardsIn0 = uint8(256 / cardSize);
         ebool[2] memory fromMDeck;
         fromMDeck[0] = encIndex.lt(numCardsIn0);
+        // fromMDeck[1] = fromMDeck[0].not(); - This is more HCU cost efficient but it increases bytecode size by alot.
         fromMDeck[1] = encIndex.ge(numCardsIn0);
 
         euint8[2] memory newCardIndexValue;
@@ -216,7 +230,8 @@ library CardEngineLib {
         uint256 cardMask = _cardMask(cardSize);
         marketDeck[0] = FHE.select(
             fromMDeck[0],
-            _swapFrom(marketDeck, encryptedCard, encIndex.mul(uint8(cardSize)), cardMask, newCardIndexValue, 0), // marketDeck[0].shr(swapFromIndex).and((uint256(1) << marketDeckMap.getDeckCardSize()) - 1)
+            // marketDeck[0].shr(swapFromIndex).and((uint256(1) << marketDeckMap.getDeckCardSize()) - 1)
+            _swapFrom(marketDeck, encryptedCard, encIndex.mul(uint8(cardSize)), cardMask, newCardIndexValue, 0),
             marketDeck[0]
         );
         marketDeck[1] = FHE.select(
@@ -238,14 +253,11 @@ library CardEngineLib {
         marketDeck[i] = marketDeck[i].and(mask).or(
             FHE.select(fromMDeck[0], newCardIndexValue[0], newCardIndexValue[1]).asEuint256().shl(uint8(indexToSwapTo))
         );
-
         $.marketDeck[0] = marketDeck[0];
         $.marketDeck[1] = marketDeck[1];
 
         FHE.allowThis(marketDeck[0]);
-        FHE.makePubliclyDecryptable(marketDeck[0]);
         FHE.allowThis(marketDeck[1]);
-        FHE.makePubliclyDecryptable(marketDeck[1]);
     }
 
     function dealInitialHand(
@@ -447,6 +459,16 @@ library CardEngineLib {
             p.deckMap = playerDeckMap;
         }
         return (marketDeckMap, playerDeckMap);
+    }
+
+    function _packNonEmptyIdxs(uint256[] memory idxs, uint256 start, uint256 end)
+        internal
+        pure
+        returns (uint256 packed)
+    {
+        for (uint256 i = start; i < end; i++) {
+            packed |= (idxs[i] << ((i % MAX_IDXS_PER_WORD) * MAX_IDX_BIT_SIZE));
+        }
     }
 
     function _cardMask(uint256 cardSize) internal pure returns (uint256) {

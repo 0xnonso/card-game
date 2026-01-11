@@ -42,6 +42,7 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
     error InvalidPlayerIndex();
     error CardSizeNotSupported();
     error CardDeckSizeTooSmall();
+    error CardDeckSizeTooBig();
     error ZeroInitialHandSize();
     error ZeroCardDeckSize();
 
@@ -104,6 +105,10 @@ contract CardEngine is ICardEngine, EInputHandler, AsyncHandler, ReentrancyGuard
         DeckMap marketDeckMap = CardEngineLib.initializeMarketDeckMap(params.cardDeckSize, params.cardBitSize);
         if ((params.initialHandSize * maxPlayers) > marketDeckMap.len()) {
             revert CardDeckSizeTooSmall();
+        }
+
+        if ((params.cardBitSize * marketDeckMap.getDeckCardSize()) > Constants.MAX_DECK_SIZE) {
+            revert CardDeckSizeTooBig();
         }
 
         game.marketDeckMap = marketDeckMap;

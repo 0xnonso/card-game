@@ -14,4 +14,6 @@ library Constants {
     uint256 constant MIN_PLAYERS = 2;
     uint256 constant MAX_PLAYERS = 8;
     uint256 constant ALL_OTHER_PLAYERS = type(uint8).max;
+
+    uint256 constant MAX_DECK_SIZE = 512;
 }
