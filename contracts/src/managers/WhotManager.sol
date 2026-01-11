@@ -18,10 +18,15 @@ import {Hook, HookPermissions} from "../types/Hook.sol";
 
 contract WhotManager is BaseManager {
     TSS internal tss;
-    mapping(uint256 gameId => bool) internal isRouletteGame;
+    mapping(uint256 gameId => GameSettings) internal gameSettings;
     mapping(uint256 gameId => address[]) internal winners;
 
-    event GameEnded(uint256 indexed gameId, uint256[] sortedPacedkData);
+    event GameEnded(uint256 indexed gameId, uint256[] sortedPackedData);
+
+    struct GameSettings {
+        bool isRouletteGame;
+        bool isSuddenDeath;
+    }
 
     constructor(ICardEngine _cardEngine, TSS _tss) BaseManager(_cardEngine) {
         tss = _tss;
@@ -32,7 +37,8 @@ contract WhotManager is BaseManager {
         uint8 maxPlayers,
         uint8 handSize,
         address[] memory proposedPlayers,
-        bool roulette
+        bool roulette,
+        bool endAfterFirstExit
     ) external returns (uint256 gameId) {
         bytes memory proofData = tss.useInputProof();
 
@@ -48,44 +54,75 @@ contract WhotManager is BaseManager {
         params.cardDeckSize = WhotCard.getDefaultDeck().length;
         params.maxPlayers = maxPlayers;
         params.initialHandSize = handSize;
-        params.hookPermissions = HookPermissions.wrap(Hook.ON_START_GAME_FLAG | Hook.ON_FINISH_GAME_FLAG);
+        params.hookPermissions =
+            HookPermissions.wrap(Hook.ON_START_GAME_FLAG | Hook.ON_PLAYER_EXIT_FLAG | Hook.ON_FINISH_GAME_FLAG);
         params.proposedPlayers = proposedPlayers;
 
         gameId = CARD_ENGINE.createGame(params);
 
-        if (roulette) {
-            isRouletteGame[gameId] = true;
-        }
+        gameSettings[gameId] = GameSettings({isRouletteGame: roulette, isSuddenDeath: endAfterFirstExit});
     }
 
-    function selectGameWinner(uint256 gameId, PlayerScoreData[] calldata playersData) internal {
+    function getWinners(uint256 gameId) external view returns (address[] memory) {
+        return winners[gameId];
+    }
+
+    function onStartGame(uint256 gameId) external view override onlyCardEngine returns (bool) {
+        return gameSettings[gameId].isRouletteGame;
+    }
+
+    function onPlayerExit(uint256 gameId, address /**player**/, bool forfeited)
+        external
+        override
+        onlyCardEngine
+        returns (bool)
+    {
+        return !forfeited && gameSettings[gameId].isSuddenDeath;
+    }
+
+    function onFinishGame(
+        uint256 gameId,
+        IRuleset gameRuleset,
+        PlayerScoreData[] calldata playersData,
+        uint256[2] calldata
+    ) external override onlyCardEngine {
+        selectGameWinner(gameId, playersData, gameRuleset);
+    }
+
+    function selectGameWinner(uint256 gameId, PlayerScoreData[] calldata playersData, IRuleset gameRuleset) internal {
         uint256 dataLength = playersData.length;
         uint256[] memory packedData = new uint256[](dataLength);
         for (uint256 i = 0; i < dataLength; i++) {
-            packedData[i] = uint256(playersData[i].score) << 160 | uint256(uint160(playersData[i].playerAddr));
+            packedData[i] =
+                calculatePlayerScore(playersData[i], gameRuleset) << 160 | uint256(uint160(playersData[i].playerAddr));
         }
         LibSort.insertionSort(packedData);
         uint256 firstWinner = packedData[0];
-        winners[gameId].push(address(uint160(firstWinner & Constants.ADDRESS_MASK)));
+        winners[gameId].push(extractPlayerAddr(firstWinner));
         for (uint256 i = 1; i < dataLength; i++) {
             uint256 nextWinner = packedData[i];
             if ((firstWinner >> 160) != (nextWinner >> 160)) {
                 break;
             }
-            winners[gameId].push(address(uint160(nextWinner & Constants.ADDRESS_MASK)));
+            winners[gameId].push(extractPlayerAddr(nextWinner));
         }
         emit GameEnded(gameId, packedData);
     }
 
-    function onStartGame(uint256 gameId) external view override onlyCardEngine returns (bool) {
-        return isRouletteGame[gameId];
+    function calculatePlayerScore(PlayerScoreData memory playerData, IRuleset ruleset)
+        internal
+        view
+        returns (uint256 playerScore)
+    {
+        uint256 cardSize = playerData.deckMap.getDeckCardSize();
+        for (uint256 i = 0; i < playerData.hand.length; i++) {
+            Card card = playerData.hand[i];
+            (, uint256 cardValue) = ruleset.getCardAttributes(card, cardSize);
+            playerScore += cardValue;
+        }
     }
 
-    function onFinishGame(uint256 gameId, PlayerScoreData[] calldata playersData, uint256[2] calldata)
-        external
-        override
-        onlyCardEngine
-    {
-        selectGameWinner(gameId, playersData);
+    function extractPlayerAddr(uint256 packedData) internal pure returns (address playerAddr) {
+        playerAddr = address(uint160(packedData & Constants.ADDRESS_MASK));
     }
 }
