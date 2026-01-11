@@ -6,9 +6,9 @@ import "../helpers/BitLookupTable.sol";
 import "forge-std/Test.sol";
 
 contract MapTest is Test {
-    function test_fuzz_DeckMap_Length(uint64 rawDeckMap) public {
+    function test_fuzz_DeckMap_Length(uint72 rawDeckMap) public {
         DeckMap deckMap = DeckMap.wrap(rawDeckMap);
-        assertEq(deckMap.rawMap(), uint64(rawDeckMap >> 2));
+        assertEq(deckMap.rawMap(), uint72(rawDeckMap >> 2));
         assertEq(deckMap.len(), BitLookupTable.popcount(deckMap.rawMap()));
     }
 
@@ -35,7 +35,7 @@ contract MapTest is Test {
         }
     }
 
-    function test_fuzz_DeckMap_GetNonEmptyIdxs(uint64 rawDeckMap) public {
+    function test_fuzz_DeckMap_GetNonEmptyIdxs(uint72 rawDeckMap) public {
         DeckMap deckMap = DeckMap.wrap(rawDeckMap);
         uint256[] memory idxs = deckMap.getNonEmptyIdxs();
         uint256 expectedLen = deckMap.len();

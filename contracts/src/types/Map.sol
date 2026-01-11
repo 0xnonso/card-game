@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 // import "hardhat/console.sol";
 import {LibBit} from "solady/src/utils/LibBit.sol";
 
-type DeckMap is uint64;
+type DeckMap is uint72;
 
 using DeckMapLib for DeckMap global;
 
@@ -13,8 +13,8 @@ library DeckMapLib {
     error IndexIsEmpty();
     error IndexNotEmpty();
 
-    function rawMap(DeckMap deckMap) internal pure returns (uint64) {
-        return uint64(DeckMap.unwrap(deckMap) >> 2);
+    function rawMap(DeckMap deckMap) internal pure returns (uint72) {
+        return uint72(DeckMap.unwrap(deckMap) >> 2);
     }
 
     function newMap(DeckMap deckMap) internal pure returns (DeckMap) {
@@ -47,7 +47,7 @@ library DeckMapLib {
 
     function getNonEmptyIdxs(DeckMap deckMap) internal pure returns (uint256[] memory) {
         uint256[] memory idxs = new uint256[](deckMap.len());
-        uint64 map = deckMap.rawMap();
+        uint72 map = deckMap.rawMap();
 
         uint256 currentIdx;
         while (map != 0) {
@@ -63,7 +63,7 @@ library DeckMapLib {
 
     function getNonEmptyIdxs(DeckMap deckMap, uint256 amount) internal pure returns (uint256[] memory) {
         uint256[] memory idxs = new uint256[](amount);
-        uint64 map = deckMap.rawMap();
+        uint72 map = deckMap.rawMap();
         uint256 currentIdx;
         while (map != 0) {
             if (amount == currentIdx) return idxs;
@@ -80,7 +80,7 @@ library DeckMapLib {
         uint256 map = empty
             ? DeckMap.unwrap(deckMap) | (uint256(1) << (idx + 2))
             : DeckMap.unwrap(deckMap) & ~(uint256(1) << (idx + 2));
-        return DeckMap.wrap(uint64(map));
+        return DeckMap.wrap(uint72(map));
     }
 
     function setToEmpty(DeckMap deckMap, uint256 idx) internal pure returns (DeckMap) {
@@ -97,7 +97,7 @@ library DeckMapLib {
             mask |= (uint256(1) << (idxs[i]));
         }
         if (mask & map != mask) revert IndexIsEmpty();
-        return DeckMap.wrap(uint64((~mask & map) << 2 | (DeckMap.unwrap(deckMap) & 0x03)));
+        return DeckMap.wrap(uint72((~mask & map) << 2 | (DeckMap.unwrap(deckMap) & 0x03)));
     }
 
     function fill(DeckMap deckMap, uint256[] memory idxs) internal pure returns (DeckMap) {
@@ -109,7 +109,7 @@ library DeckMapLib {
             mask |= uint256(1) << idxs[i];
         }
         if (mask & map != 0) revert IndexNotEmpty();
-        return DeckMap.wrap(uint64(mask << 2 | DeckMap.unwrap(deckMap)));
+        return DeckMap.wrap(uint72(mask << 2 | DeckMap.unwrap(deckMap)));
     }
 
     function fill(DeckMap deckMap, uint256 idx) internal pure returns (DeckMap) {
