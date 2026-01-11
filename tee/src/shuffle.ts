@@ -53,6 +53,21 @@ if (ttlEnv) {
 // rate limit: one POST /shuffle per clientId per 10 minutes
 const RATE_LIMIT_WINDOW_SECONDS = 10 * 60;
 
+// Rate limit behavior on Redis errors: fail-open (true) or fail-close (false)
+// Default is fail-close for security; set RATE_LIMIT_FAIL_OPEN=true to allow requests when Redis is unavailable
+const RATE_LIMIT_FAIL_OPEN = process.env.RATE_LIMIT_FAIL_OPEN === "true";
+
+// Timeout for encryption operations in milliseconds (default: 60 seconds)
+const DEFAULT_ENCRYPTION_TIMEOUT_MS = 60 * 1000;
+let ENCRYPTION_TIMEOUT_MS = DEFAULT_ENCRYPTION_TIMEOUT_MS;
+const encryptionTimeoutEnv = process.env.ENCRYPTION_TIMEOUT_MS;
+if (encryptionTimeoutEnv) {
+	const parsed = parseInt(encryptionTimeoutEnv, 10);
+	if (!Number.isNaN(parsed) && parsed > 0) {
+		ENCRYPTION_TIMEOUT_MS = parsed;
+	}
+}
+
 // on-chain callback: env toggle + config
 const CALL_TRUSTED_CONTRACT = process.env.CALL_TRUSTED_CONTRACT === "true";
 const ETH_RPC_URL = process.env.SHUFFLE_RPC_URL;
@@ -115,6 +130,65 @@ function jobKey(id: string): string {
 	return `${JOB_KEY_PREFIX}${id}`;
 }
 
+const VALID_JOB_STATUSES: readonly JobStatus[] = [
+	"queued",
+	"running",
+	"done",
+	"error",
+];
+
+function isValidJob(obj: unknown): obj is Job {
+	if (typeof obj !== "object" || obj === null) return false;
+
+	const job = obj as Record<string, unknown>;
+
+	// Required string fields
+	if (typeof job.id !== "string") return false;
+	if (typeof job.clientId !== "string") return false;
+	if (typeof job.contractAddress !== "string") return false;
+	if (typeof job.importerAddress !== "string") return false;
+	if (typeof job.trustedShuffleService !== "string") return false;
+	if (typeof job.deckHash !== "string") return false;
+	if (typeof job.createdAt !== "string") return false;
+	if (typeof job.updatedAt !== "string") return false;
+
+	// Status must be one of the valid values
+	if (
+		typeof job.status !== "string" ||
+		!VALID_JOB_STATUSES.includes(job.status as JobStatus)
+	) {
+		return false;
+	}
+
+	// Required number fields
+	if (typeof job.progress !== "number" || !Number.isFinite(job.progress))
+		return false;
+	if (typeof job.numProofs !== "number" || !Number.isSafeInteger(job.numProofs))
+		return false;
+	if (
+		typeof job.cardBitSize !== "number" ||
+		!Number.isSafeInteger(job.cardBitSize)
+	)
+		return false;
+
+	// Deck must be an array of numbers
+	if (!Array.isArray(job.deck)) return false;
+	for (const v of job.deck) {
+		if (typeof v !== "number" || !Number.isSafeInteger(v)) return false;
+	}
+
+	// Optional fields
+	if (job.result !== undefined) {
+		if (!Array.isArray(job.result)) return false;
+		for (const v of job.result) {
+			if (typeof v !== "string") return false;
+		}
+	}
+	if (job.error !== undefined && typeof job.error !== "string") return false;
+
+	return true;
+}
+
 export async function saveJob(
 	job: Job,
 	ttlSeconds = JOB_TTL_SECONDS,
@@ -128,10 +202,18 @@ export async function getJob(id: string): Promise<Job | null> {
 	const raw = await redis.get(jobKey(id));
 	if (!raw) return null;
 	try {
-		const job = JSON.parse(raw) as Job;
-		return job;
+		const parsed: unknown = JSON.parse(raw);
+		if (!isValidJob(parsed)) {
+			// eslint-disable-next-line no-console
+			console.error(
+				"Job data failed validation for id",
+				id,
+				"- possible data corruption or schema mismatch",
+			);
+			return null;
+		}
+		return parsed;
 	} catch (err) {
-		// Better to log than silently swallow
 		// eslint-disable-next-line no-console
 		console.error("Failed to parse job JSON for id", id, err);
 		return null;
@@ -185,10 +267,17 @@ async function checkRateLimitForClient(clientId: string): Promise<boolean> {
 		);
 		return res === "OK"; // OK => first call in window; null => already used
 	} catch (err) {
-		// On Redis error, log and fail-open (better than DOS'ing legit users)
 		// eslint-disable-next-line no-console
-		console.error("Rate limit check failed, allowing request", err);
-		return true;
+		console.error("Rate limit check failed due to Redis error", err);
+		if (RATE_LIMIT_FAIL_OPEN) {
+			// eslint-disable-next-line no-console
+			console.warn(
+				"RATE_LIMIT_FAIL_OPEN is enabled, allowing request despite Redis error",
+			);
+			return true;
+		}
+		// Default: fail-close for security - reject request when rate limit cannot be verified
+		return false;
 	}
 }
 
@@ -196,19 +285,33 @@ async function checkRateLimitForClient(clientId: string): Promise<boolean> {
 
 let cachedRpcChainId: number | undefined;
 
+export interface TrustedShuffleResult {
+	called: boolean;
+	txHash?: string;
+	skippedReason?: string;
+	error?: string;
+}
+
 async function callTrustedShuffleService(
 	job: Job,
 	proofs: Uint8Array[],
 	logger: FastifyInstance["log"],
-): Promise<void> {
-	if (!CALL_TRUSTED_CONTRACT) return;
-	if (!ETH_RPC_URL) return;
+): Promise<TrustedShuffleResult> {
+	if (!CALL_TRUSTED_CONTRACT) {
+		return { called: false, skippedReason: "CALL_TRUSTED_CONTRACT is disabled" };
+	}
+	if (!ETH_RPC_URL) {
+		return { called: false, skippedReason: "SHUFFLE_RPC_URL not configured" };
+	}
 
 	if (!job.trustedShuffleService) {
-		return;
+		return {
+			called: false,
+			skippedReason: "trustedShuffleService address not provided in job",
+		};
 	}
 	if (!TEE_WALLET_LABEL) {
-		return;
+		return { called: false, skippedReason: "TEE_WALLET_LABEL not configured" };
 	}
 
 	try {
@@ -227,11 +330,9 @@ async function callTrustedShuffleService(
 		}
 		const chainId = cachedRpcChainId;
 		if (chainId !== sepolia.id) {
-			logger.warn(
-				{ jobId: job.id, chainId },
-				"SHUFFLE_RPC_URL is not Sepolia; skipping trustedShuffleService call",
-			);
-			return;
+			const reason = `SHUFFLE_RPC_URL chain (${chainId}) is not Sepolia (${sepolia.id})`;
+			logger.warn({ jobId: job.id, chainId }, reason);
+			return { called: false, skippedReason: reason };
 		}
 
 		const wallet = createWalletClient({
@@ -266,11 +367,15 @@ async function callTrustedShuffleService(
 			{ jobId: job.id, contract: job.trustedShuffleService, txHash },
 			"called trustedShuffleService.storeInputProofs from TEE wallet",
 		);
+
+		return { called: true, txHash };
 	} catch (err) {
+		const errorMessage = err instanceof Error ? err.message : String(err);
 		logger.error(
 			{ jobId: job.id, err },
 			"failed to call trustedShuffleService.storeInputProofs",
 		);
+		return { called: false, error: errorMessage };
 	}
 }
 
@@ -288,6 +393,37 @@ function hexlify(u8: Uint8Array): string {
 
 async function delay(ms: number): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+class TimeoutError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "TimeoutError";
+	}
+}
+
+async function withTimeout<T>(
+	promise: Promise<T>,
+	timeoutMs: number,
+	operationName: string,
+): Promise<T> {
+	let timeoutId: ReturnType<typeof setTimeout>;
+
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		timeoutId = setTimeout(() => {
+			reject(
+				new TimeoutError(
+					`${operationName} timed out after ${timeoutMs}ms`,
+				),
+			);
+		}, timeoutMs);
+	});
+
+	try {
+		return await Promise.race([promise, timeoutPromise]);
+	} finally {
+		clearTimeout(timeoutId!);
+	}
 }
 
 async function processJob(
@@ -308,8 +444,9 @@ async function processJob(
 	job.progress = 0;
 	await saveJob(job);
 
+	let lastProgressSave: Promise<void> | undefined;
 	try {
-		const proofs = await encryptMultipleDeck(
+		const encryptionPromise = encryptMultipleDeck(
 			job.numProofs,
 			job.contractAddress,
 			job.importerAddress,
@@ -321,7 +458,14 @@ async function processJob(
 
 				if (bounded > job.progress) {
 					job.progress = bounded;
-					void saveJob(job);
+					lastProgressSave = (lastProgressSave ?? Promise.resolve())
+						.then(() => saveJob(job))
+						.catch((err) => {
+							logger.warn(
+								{ jobId: job.id, err },
+								"failed to persist progress update",
+							);
+						});
 				}
 			},
 			job.deck,
@@ -329,14 +473,39 @@ async function processJob(
 			job.id,
 		);
 
+		const proofs = await withTimeout(
+			encryptionPromise,
+			ENCRYPTION_TIMEOUT_MS,
+			"Encryption operation",
+		);
+
+		if (lastProgressSave) {
+			await lastProgressSave;
+		}
+
 		job.result = proofs.map(hexlify);
 		job.status = "done";
 		job.progress = 100; // 100 only on successful completion
 		await saveJob(job);
 
 		// Optional on-chain callback from TEE address, to contract fallback
-		await callTrustedShuffleService(job, proofs, logger);
+		const callResult = await callTrustedShuffleService(job, proofs, logger);
+		if (callResult.error) {
+			// Log as warning since the shuffle itself succeeded, but the on-chain callback failed
+			logger.warn(
+				{ jobId, error: callResult.error },
+				"on-chain callback failed after successful shuffle",
+			);
+		} else if (callResult.skippedReason) {
+			logger.debug(
+				{ jobId, reason: callResult.skippedReason },
+				"on-chain callback skipped",
+			);
+		}
 	} catch (e: unknown) {
+		if (lastProgressSave) {
+			await lastProgressSave;
+		}
 		job.status = "error";
 		job.error = e instanceof Error ? e.message : String(e);
 		await saveJob(job);
@@ -348,26 +517,39 @@ async function workerLoop(
 	workerId: number,
 	logger: FastifyInstance["log"],
 ): Promise<void> {
-	logger.info({ workerId, concurrency: WORKER_CONCURRENCY }, "worker started");
-	while (!shuttingDown) {
-		try {
-			const res = await redis.blpop(QUEUE_KEY, 5);
-			if (!res) continue;
-			const [, jobId] = res;
-			if (!jobId) continue;
+	const blockingRedis = new Redis(REDIS_URL);
+	blockingRedis.on("error", (err) => {
+		logger.error({ err, workerId }, "[redis] worker error");
+	});
 
-			logger.info({ workerId, jobId }, "worker picked up job");
-			await processJob(jobId, logger);
-		} catch (err) {
-			if (shuttingDown) {
-				logger.info({ workerId }, "worker stopping after shutdown");
-				return;
+	logger.info({ workerId, concurrency: WORKER_CONCURRENCY }, "worker started");
+	try {
+		while (!shuttingDown) {
+			try {
+				const res = await blockingRedis.blpop(QUEUE_KEY, 5);
+				if (!res) continue;
+				const [, jobId] = res;
+				if (!jobId) continue;
+
+				logger.info({ workerId, jobId }, "worker picked up job");
+				await processJob(jobId, logger);
+			} catch (err) {
+				if (shuttingDown) {
+					logger.info({ workerId }, "worker stopping after shutdown");
+					return;
+				}
+				logger.error({ err, workerId }, "worker error, backing off");
+				await delay(1000);
 			}
-			logger.error({ err, workerId }, "worker error, backing off");
-			await delay(1000);
+		}
+		logger.info({ workerId }, "worker exiting");
+	} finally {
+		try {
+			await blockingRedis.quit();
+		} catch {
+			blockingRedis.disconnect();
 		}
 	}
-	logger.info({ workerId }, "worker exiting");
 }
 
 export async function startWorkers(
@@ -400,8 +582,8 @@ export interface ShuffleEnqueueResponse {
 // Shared schema fragments
 const cardBitSizeSchema = {
 	type: "integer",
-	minimum: 1,
-	maximum: 256,
+	minimum: 5,
+	maximum: 8,
 } as const;
 
 const deckSchema = {
@@ -512,10 +694,10 @@ function normalizeAndValidateShuffleBody(
 	}
 	if (
 		!Number.isSafeInteger(cardBitSize) ||
-		cardBitSize < 1 ||
-		cardBitSize > 256
+		cardBitSize < 5 ||
+		cardBitSize > 8
 	) {
-		throw new Error("cardBitSize must be an integer between 1 and 256");
+		throw new Error("cardBitSize must be an integer between 5 and 8");
 	}
 	if (!Array.isArray(deck) || deck.length === 0) {
 		throw new Error(

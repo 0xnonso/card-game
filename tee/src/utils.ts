@@ -2,6 +2,12 @@ import { HMACDRBG } from "@stablelib/hmac-drbg";
 import type { RandomSource } from "@stablelib/random";
 import { SHA256 } from "@stablelib/sha256";
 
+/**
+ * Minimum seed length in bytes for cryptographic security.
+ * 32 bytes = 256 bits, matching the security level of SHA-256.
+ */
+export const MIN_SEED_LENGTH = 32;
+
 export interface Rng32Options {
 	/**
 	 * Size of the internal random byte pool, in bytes.
@@ -12,7 +18,7 @@ export interface Rng32Options {
 
 	/**
 	 * Deterministic seed (entropy input for the DRBG).
-	 * Must be non-empty.
+	 * Must be at least MIN_SEED_LENGTH (32) bytes for cryptographic security.
 	 */
 	seed: Uint8Array | Buffer;
 
@@ -35,8 +41,10 @@ class SeedRandomSource implements RandomSource {
 	private offset = 0;
 
 	constructor(seed: Uint8Array) {
-		if (seed.length === 0) {
-			throw new RangeError("seed must be non-empty");
+		if (seed.length < MIN_SEED_LENGTH) {
+			throw new RangeError(
+				`seed must be at least ${MIN_SEED_LENGTH} bytes for cryptographic security, got ${seed.length}`,
+			);
 		}
 		this.seed = seed;
 	}
@@ -76,8 +84,10 @@ export class Rng32 {
 		}
 
 		const seedBytes = new Uint8Array(Buffer.from(options.seed));
-		if (seedBytes.length === 0) {
-			throw new RangeError("seed must be non-empty");
+		if (seedBytes.length < MIN_SEED_LENGTH) {
+			throw new RangeError(
+				`seed must be at least ${MIN_SEED_LENGTH} bytes for cryptographic security, got ${seedBytes.length}`,
+			);
 		}
 
 		const nonceBytes = options.nonce
